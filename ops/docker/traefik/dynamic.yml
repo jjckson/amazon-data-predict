@@ -1,0 +1,26 @@
+http:
+  middlewares:
+    mlflow-auth:
+      basicAuth:
+        usersFile: /etc/traefik/users.htpasswd
+
+  routers:
+    mlflow:
+      entryPoints:
+        - websecure
+      rule: Host(`localhost`)
+      service: mlflow
+      tls: {}
+      middlewares:
+        - mlflow-auth
+
+  services:
+    mlflow:
+      loadBalancer:
+        servers:
+          - url: http://mlflow:5000
+
+tls:
+  certificates:
+    - certFile: /etc/traefik/certs/dev.crt
+      keyFile: /etc/traefik/certs/dev.key

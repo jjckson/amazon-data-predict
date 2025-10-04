@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-settings
+  labels:
+    app.kubernetes.io/name: amazon-data-predict
+    app.kubernetes.io/component: configuration
+data:
+  settings.yaml: |
+    # Paste the contents of config/settings.yaml or overrides here before applying.
+    # For production use `kubectl create configmap app-settings --from-file=settings.yaml=./config/settings.yaml --dry-run=client -o yaml > ops/k8s/app-settings-configmap.yaml`.

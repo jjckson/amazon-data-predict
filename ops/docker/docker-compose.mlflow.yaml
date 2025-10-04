@@ -1,0 +1,49 @@
+services:
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    env_file:
+      - mlflow.env
+    command: >-
+      mlflow server
+        --backend-store-uri $${MLFLOW_BACKEND_STORE_URI}
+        --default-artifact-root $${MLFLOW_DEFAULT_ARTIFACT_ROOT}
+        --host 0.0.0.0
+        --port 5000
+    depends_on:
+      postgres:
+        condition: service_started
+      minio:
+        condition: service_started
+
+  postgres:
+    image: postgres:15-alpine
+    env_file:
+      - mlflow-postgres.env
+    volumes:
+      - mlflow-postgres:/var/lib/postgresql/data
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2024-01-31T20-20-00Z
+    command: server /data --console-address :9001
+    env_file:
+      - mlflow-minio.env
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - mlflow-minio:/data
+
+  traefik:
+    image: traefik:v3.0
+    ports:
+      - "8443:8443"
+      - "9100:9100"
+    volumes:
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - ./traefik/users.htpasswd:/etc/traefik/users.htpasswd:ro
+      - ./traefik/certs:/etc/traefik/certs:ro
+
+volumes:
+  mlflow-postgres:
+  mlflow-minio:

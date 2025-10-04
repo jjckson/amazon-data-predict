@@ -1,0 +1,13 @@
+entryPoints:
+  websecure:
+    address: ":8443"
+  metrics:
+    address: ":9100"
+
+providers:
+  file:
+    filename: /etc/traefik/dynamic.yml
+
+metrics:
+  prometheus:
+    entryPoint: metrics
