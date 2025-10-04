@@ -1,0 +1,54 @@
+services:
+  training-job:
+    build:
+      context: ../
+      dockerfile: ops/docker/Dockerfile.training
+    env_file:
+      - ../config/secrets.env
+      - training.env
+    environment:
+      - SETTINGS_PATH=/app/config/settings.yaml
+      - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-http://mlflow:5000}
+    volumes:
+      - ../storage/data:/app/storage/data
+      - ../storage/artifacts:/app/storage/artifacts
+    command: >-
+      python -m training.build_labels
+    depends_on:
+      mlflow:
+        condition: service_started
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    ports:
+      - "5000:5000"
+    env_file:
+      - mlflow.env
+    command: >-
+      mlflow server
+        --backend-store-uri $${MLFLOW_BACKEND_STORE_URI}
+        --default-artifact-root $${MLFLOW_DEFAULT_ARTIFACT_ROOT}
+        --host 0.0.0.0
+        --port 5000
+
+  postgres:
+    image: postgres:15-alpine
+    env_file:
+      - mlflow-postgres.env
+    volumes:
+      - mlflow-postgres:/var/lib/postgresql/data
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2024-01-31T20-20-00Z
+    command: server /data --console-address :9001
+    env_file:
+      - mlflow-minio.env
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - mlflow-minio:/data
+
+volumes:
+  mlflow-postgres:
+  mlflow-minio:
