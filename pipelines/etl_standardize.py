@@ -33,17 +33,19 @@ def standardize(df: pd.DataFrame) -> pd.DataFrame:
     df = df.sort_values("_ingested_at").drop_duplicates(
         subset=["asin", "site", "dt"], keep="last"
     )
-    price_valid = df["price"].apply(lambda v: v is not None and v > 0)
-    bsr_valid = df["bsr"].apply(lambda v: v is not None and 0 < v < 5_000_000)
+    price = pd.to_numeric(df["price"], errors="coerce")
+    bsr = pd.to_numeric(df["bsr"], errors="coerce")
+    rating = pd.to_numeric(df["rating"], errors="coerce")
 
-    df["price_valid"] = price_valid.astype(object)
-    df["bsr_valid"] = bsr_valid.astype(object)
+    price_valid = price.notna() & (price > 0)
+    bsr_valid = bsr.notna() & (bsr > 0) & (bsr < 5_000_000)
 
-    df["price"] = df["price"].astype(float).astype(object)
-    df["bsr"] = df["bsr"].astype(float).astype(object)
-    df["rating"] = df["rating"].astype(float)
-    df.loc[~price_valid, "price"] = None
-    df.loc[~bsr_valid, "bsr"] = None
+    df["price_valid"] = price_valid
+    df["bsr_valid"] = bsr_valid
+
+    df["price"] = price.where(price_valid)
+    df["bsr"] = bsr.where(bsr_valid)
+    df["rating"] = rating
     df["dt"] = pd.to_datetime(df["dt"]).dt.normalize()
     return df
 
