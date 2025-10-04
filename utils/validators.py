@@ -29,8 +29,7 @@ class DataValidator:
             return ValidationResult("failed", {"missing_columns": missing_cols})
 
         df_sorted = df.sort_values("dt")
-        dt_series = pd.to_datetime(df_sorted["dt"], errors="coerce")
-        coverage = dt_series.diff().dt.days.fillna(1).eq(1).mean()
+        coverage = df_sorted["dt"].diff().dt.days.fillna(1).eq(1).mean()
         status = "passed" if coverage >= self.coverage_threshold else "warning"
 
         anomalies = {}

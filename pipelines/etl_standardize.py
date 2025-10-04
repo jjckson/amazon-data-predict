@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import math
 from datetime import date
 from typing import Iterable
 
@@ -26,24 +25,6 @@ REQUIRED_COLUMNS = [
     "buybox_seller",
 ]
 
-def _is_positive(value: object) -> bool:
-    if value is None or (isinstance(value, float) and math.isnan(value)):
-        return False
-    try:
-        return float(value) > 0
-    except (TypeError, ValueError):
-        return False
-
-
-def _is_bsr_valid(value: object) -> bool:
-    if value is None or (isinstance(value, float) and math.isnan(value)):
-        return False
-    try:
-        val = float(value)
-    except (TypeError, ValueError):
-        return False
-    return 0 < val < 5_000_000
-
 
 def standardize(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
@@ -52,21 +33,15 @@ def standardize(df: pd.DataFrame) -> pd.DataFrame:
     df = df.sort_values("_ingested_at").drop_duplicates(
         subset=["asin", "site", "dt"], keep="last"
     )
-    df["price_valid"] = df["price"].apply(_is_positive)
-    df["bsr_valid"] = df["bsr"].apply(_is_bsr_valid)
+    df["price_valid"] = df["price"].apply(lambda v: v is not None and v > 0)
+    df["bsr_valid"] = df["bsr"].apply(lambda v: v is not None and 0 < v < 5_000_000)
 
-    invalid_price = ~df["price_valid"]
-    invalid_bsr = ~df["bsr_valid"]
-    df.loc[invalid_price, "price"] = None
-    df.loc[invalid_bsr, "bsr"] = None
+    df.loc[~df["price_valid"], "price"] = None
+    df.loc[~df["bsr_valid"], "bsr"] = None
 
     df["price"] = df["price"].astype(float)
     df["rating"] = df["rating"].astype(float)
-    df["bsr"] = df["bsr"].astype(float).astype(object)
-    df.loc[invalid_bsr, "bsr"] = None
     df["dt"] = pd.to_datetime(df["dt"]).dt.date
-    df["price_valid"] = df["price_valid"].map(lambda x: True if bool(x) else False).astype(object)
-    df["bsr_valid"] = df["bsr_valid"].map(lambda x: True if bool(x) else False).astype(object)
     return df
 
 

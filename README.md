@@ -11,8 +11,6 @@ dashboards and machine learning training.
 config/                 # Environment settings and credential templates
 connectors/             # API clients with rate limiting + retry logic
 pipelines/              # Ingestion, ETL, feature, and scoring orchestrators
-training/               # Label generation, ranker training, hyper-parameter tuning
-inference/              # Batch scoring utilities for trained models
 storage/                # Database DDL, feature-store schema, migrations
 utils/                  # Shared helpers for logging, config, validation
 jobs/                   # Scheduling assets (cron + Airflow DAG)
@@ -43,38 +41,6 @@ tests/                  # Unit tests for connectors + pipelines
 | `pipelines/etl_standardize.py` | Cleanse raw facts into daily mart | Deduplicate, handle anomalies, enforce schema, produce quality report |
 | `pipelines/features_build.py` | Generate rolling features | Compute BSR trends, price volatility, review velocity, listing quality |
 | `pipelines/score_baseline.py` | Compute baseline explosive score | Robust z-scoring per site/category with configurable weights |
-| `training/build_labels.py` | Generate supervised samples | Produces binary/ranking/regression labels with temporal splits |
-
-Run label generation once the mart/features tables are populated:
-
-```bash
-python -m training.build_labels --mart mart_timeseries_daily.parquet \
-  --features features_daily.parquet --output-dir artifacts/samples
-```
-
-The script emits `train_samples_bin|rank|reg` parquet files with split metadata, feature JSON blobs, and summary logs.
-
-## Model Training & Evaluation
-
-Once labels exist, train the baseline LightGBM ranker:
-
-```bash
-python -m training.train_rank --data artifacts/samples/train_samples_rank.parquet \
-  --output artifacts/lgb_rank.txt
-```
-
-- Hyper-parameter search (optional): `python -m training.tune_rank --data ... --trials 50`
-- Metrics reporting: `python -m training.eval_metrics --predictions predictions.csv --k 10 20`
-
-Batch inference on fresh feature snapshots:
-
-```bash
-python -m inference.batch_predict --model artifacts/lgb_rank.txt \
-  --features features_daily_2025-10-04.parquet \
-  --output exports/pred_rank_daily.parquet
-```
-
-Outputs include the model score and group-wise rank, ready to be joined with `dim_asin` for dashboards or downstream triage.
 
 Each script exposes a `run` helper that can be reused inside orchestrators and a CLI entry point
 (see `jobs/cron.md`).

@@ -30,18 +30,6 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
             "listing_quality": 0.30,
         }
     },
-    "training": {
-        "labels": {
-            "lookback_days": 28,
-            "horizon_days": 30,
-            "ratio_threshold": 1.6,
-            "percentile_drop": 0.2,
-            "min_coverage": 0.7,
-            "min_past_sales": 1.0,
-            "price_band_quantiles": [0.0, 0.25, 0.75, 1.0],
-        },
-        "splits": {"train": 0.7, "valid": 0.15, "test": 0.15},
-    },
 }
 
 
