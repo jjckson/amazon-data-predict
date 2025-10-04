@@ -1,0 +1,7 @@
+pandas
+numpy
+pyyaml
+requests
+lightgbm
+optuna
+scikit-learn

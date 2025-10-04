@@ -1,0 +1,86 @@
+env: "prod"
+timezone: "UTC"
+sites:
+  - "US"
+  - "UK"
+  - "DE"
+asin_pool_source: "db"
+rate_limits:
+  unified_api:
+    qpm: 200
+    burst: 200
+    timeout_sec: 10
+  keepa:
+    qpm: 50
+    burst: 50
+    timeout_sec: 10
+  spapi:
+    qpm: 60
+    burst: 60
+    timeout_sec: 10
+  paapi:
+    qpm: 20
+    burst: 20
+    timeout_sec: 10
+  helium10:
+    qpm: 30
+    burst: 30
+    timeout_sec: 10
+  junglescout:
+    qpm: 30
+    burst: 30
+    timeout_sec: 10
+retry_policy:
+  max_attempts: 5
+  base_delay_ms: 500
+  jitter_ms: 300
+  max_delay_ms: 60000
+windows:
+  lookback_days: 28
+  horizon_days: 30
+storage:
+  db:
+    driver: "postgresql"
+    host: "localhost"
+    port: 5432
+    user: "asin"
+    dbname: "asin_analytics"
+  s3_like:
+    bucket: "raw-json"
+    prefix: "unified_api/"
+features:
+  rolling:
+    - 7
+    - 14
+    - 30
+  min_reviews: 5
+scoring:
+  weights:
+    bsr_trend_30: 0.35
+    est_sales_30: 0.25
+    review_vel_14: 0.20
+    price_vol_30: -0.10
+    listing_quality: 0.30
+training:
+  labels:
+    lookback_days: 28
+    horizon_days: 30
+    ratio_threshold: 1.6
+    percentile_drop: 0.2
+    min_coverage: 0.7
+    min_past_sales: 1.0
+    price_band_quantiles: [0.0, 0.25, 0.75, 1.0]
+  splits:
+    train: 0.7
+    valid: 0.15
+    test: 0.15
+exports:
+  views:
+    - name: "vw_top_candidates_daily"
+      path: "exports/top_candidates"
+    - name: "vw_features_latest"
+      path: "exports/features_latest"
+logging:
+  level: "INFO"
+  json: true
+  destination: "stdout"
