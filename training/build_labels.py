@@ -1,76 +1,484 @@
 """Helpers for constructing supervised learning targets."""
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from collections.abc import Callable, Mapping, Sequence
 import datetime as dt
+import logging
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
 
-def _prepare_frame(mart_df: pd.DataFrame) -> pd.DataFrame:
-    """Normalize the mart frame prior to label construction."""
+Window = tuple[pd.Timestamp, pd.Timestamp]
 
-    if mart_df.empty:
-        return mart_df.copy()
 
-    prepared = mart_df.copy()
+@dataclass(frozen=True)
+class LabelWindows:
+    """Configuration for observation (W) and forecast (H) windows."""
+
+    observation_days: int = 28
+    forecast_days: int = 7
+
+    def __post_init__(self) -> None:  # pragma: no cover - trivial validation
+        if self.observation_days <= 0:
+            raise ValueError("observation_days must be positive")
+        if self.forecast_days <= 0:
+            raise ValueError("forecast_days must be positive")
+
+
+@dataclass(frozen=True)
+class Thresholds:
+    """Threshold parameters used by the different targets."""
+
+    r: float = 0.0  # sales threshold for binary label
+    p: float = 0.8  # percentile threshold for binary label
+    delta: float = 0.0  # growth threshold for binary label
+
+
+@dataclass(frozen=True)
+class SplitConfig:
+    """Time based split ratios for Train/Valid/Test partitions."""
+
+    ratios: tuple[float, float, float] = (0.7, 0.15, 0.15)
+    names: tuple[str, str, str] = ("train", "valid", "test")
+
+    def __post_init__(self) -> None:  # pragma: no cover - trivial validation
+        if len(self.ratios) != 3 or len(self.names) != 3:
+            raise ValueError("Exactly three ratios and names are required")
+        if any(r < 0 for r in self.ratios):
+            raise ValueError("Split ratios must be non-negative")
+        if sum(self.ratios) <= 0:
+            raise ValueError("At least one split must have a positive ratio")
+
+
+@dataclass
+class BuildLabelsResult:
+    """Structured output of the label construction pipeline."""
+
+    samples: pd.DataFrame
+    train_samples_bin: pd.DataFrame
+    train_samples_rank: pd.DataFrame
+    train_samples_reg: pd.DataFrame
+    reports: dict[str, pd.DataFrame] = field(default_factory=dict)
+
+
+def _prepare_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Normalise common columns such as ``dt`` and ensure sorting."""
+
+    if frame.empty:
+        return frame.copy()
+
+    prepared = frame.copy()
     if "dt" in prepared.columns:
         prepared["dt"] = pd.to_datetime(prepared["dt"])
-    if "bsr" in prepared.columns:
-        prepared["bsr"] = pd.to_numeric(prepared["bsr"], errors="coerce")
+    if "t_ref" in prepared.columns:
+        prepared["t_ref"] = pd.to_datetime(prepared["t_ref"])
+    if "sales" in prepared.columns:
+        prepared["sales"] = pd.to_numeric(prepared["sales"], errors="coerce")
     sort_columns = [col for col in ["asin", "site", "dt"] if col in prepared.columns]
     if sort_columns:
         prepared = prepared.sort_values(sort_columns)  # type: ignore[assignment]
     return prepared
 
 
-def build_labels(mart_df: pd.DataFrame, horizon_days: int = 1) -> pd.DataFrame:
-    """Create future looking labels for BSR performance."""
+def _expected_window(reference: pd.Timestamp, days: int, *, include_reference: bool) -> Window:
+    """Return the start/end timestamps for a rolling window."""
+
+    if include_reference:
+        start = reference - pd.Timedelta(days=days - 1)
+        end = reference
+    else:
+        start = reference + pd.Timedelta(days=1)
+        end = reference + pd.Timedelta(days=days)
+    return (start, end)
+
+
+def _slice_window(group: pd.DataFrame, window: Window) -> pd.DataFrame:
+    """Return the rows of ``group`` that fall inside ``window`` (inclusive)."""
+
+    start, end = window
+    return group.loc[(group["dt"] >= start) & (group["dt"] <= end)]
+
+
+def _compute_window_aggregates(
+    group: pd.DataFrame,
+    t_ref: pd.Timestamp,
+    windows: LabelWindows,
+) -> Mapping[str, Any]:
+    """Compute past/future aggregates for a single ``(asin, site)`` slice."""
+
+    observation_window = _expected_window(t_ref, windows.observation_days, include_reference=True)
+    forecast_window = _expected_window(t_ref, windows.forecast_days, include_reference=False)
+
+    past_slice = _slice_window(group, observation_window)
+    future_slice = _slice_window(group, forecast_window)
+
+    expected_past_days = windows.observation_days
+    expected_future_days = windows.forecast_days
+
+    unique_past_days = past_slice["dt"].nunique()
+    unique_future_days = future_slice["dt"].nunique()
+
+    past_sales = past_slice.get("sales", pd.Series(dtype=float)).sum(min_count=1)
+    future_sales = future_slice.get("sales", pd.Series(dtype=float)).sum(min_count=1)
+
+    aggregates: dict[str, Any] = {
+        "t_ref": t_ref,
+        "past_sales": past_sales if pd.notna(past_sales) else 0.0,
+        "future_sales": future_sales if pd.notna(future_sales) else 0.0,
+        "past_coverage": unique_past_days / expected_past_days if expected_past_days else np.nan,
+        "future_coverage": unique_future_days / expected_future_days if expected_future_days else np.nan,
+    }
+
+    if not past_slice.empty:
+        aggregates["past_mean_sales"] = past_slice["sales"].mean()
+        aggregates["past_std_sales"] = past_slice["sales"].std(ddof=0)
+    else:
+        aggregates["past_mean_sales"] = np.nan
+        aggregates["past_std_sales"] = np.nan
+
+    if not future_slice.empty:
+        aggregates["future_mean_sales"] = future_slice["sales"].mean()
+    else:
+        aggregates["future_mean_sales"] = np.nan
+
+    return aggregates
+
+
+def _daily_rolling_sampler(
+    mart_df: pd.DataFrame,
+    windows: LabelWindows,
+) -> pd.DataFrame:
+    """Materialise ``(asin, site, t_ref)`` slices for the rolling sampler."""
+
+    if mart_df.empty:
+        return pd.DataFrame(columns=["asin", "site", "t_ref"])
 
     prepared = _prepare_frame(mart_df)
-    if prepared.empty:
-        prepared = prepared.copy()
-        prepared["future_bsr"] = pd.Series(dtype="float64")
-        prepared["bsr_improved"] = pd.Series(dtype="bool")
-        return prepared
+    required_cols = {"asin", "site", "dt"}
+    missing = required_cols - set(prepared.columns)
+    if missing:
+        missing_columns = ", ".join(sorted(missing))
+        raise KeyError(f"mart_df is missing required columns: {missing_columns}")
 
-    horizon = max(int(horizon_days), 1)
-    prepared = prepared.copy()
-    group_keys = [col for col in ["asin", "site"] if col in prepared.columns]
-    if group_keys:
-        prepared["future_bsr"] = (
-            prepared.groupby(group_keys, sort=False)["bsr"].shift(-horizon)
+    samples: list[dict[str, Any]] = []
+    for (asin, site), group in prepared.groupby(["asin", "site"], sort=False):
+        if group.empty:
+            continue
+
+        group = group.sort_values("dt")
+        dates = group["dt"].drop_duplicates().sort_values()
+        min_ref = dates.min() + pd.Timedelta(days=max(windows.observation_days - 1, 0))
+        max_ref = dates.max() - pd.Timedelta(days=windows.forecast_days)
+        candidate_dates = dates[(dates >= min_ref) & (dates <= max_ref)]
+
+        for t_ref in candidate_dates:
+            aggregates = _compute_window_aggregates(group, t_ref, windows)
+            aggregates.update({"asin": asin, "site": site})
+            samples.append(aggregates)
+
+    if not samples:
+        return pd.DataFrame(columns=["asin", "site", "t_ref"])
+
+    return pd.DataFrame(samples)
+
+
+def _attach_features(
+    samples: pd.DataFrame,
+    features_df: pd.DataFrame | None,
+    facts_df: pd.DataFrame | None,
+) -> pd.DataFrame:
+    """Attach feature vectors and static facts to the sampled slices."""
+
+    if samples.empty:
+        return samples.copy()
+
+    enriched = samples.sort_values(["asin", "site", "t_ref"]).reset_index(drop=True)
+
+    if features_df is not None and not features_df.empty:
+        features = _prepare_frame(features_df)
+        features = features.sort_values(["asin", "site", "dt"])
+        feature_cols = [col for col in features.columns if col not in {"asin", "site", "dt"}]
+        merged = pd.merge_asof(
+            enriched,
+            features,
+            left_on="t_ref",
+            right_on="dt",
+            by=["asin", "site"],
+            direction="backward",
+            allow_exact_matches=True,
         )
+        merged = merged.drop(columns=["dt"] if "dt" in merged.columns else [])
+        enriched = merged
+        if feature_cols:
+            # Create a serialisable feature payload for downstream tasks.
+            enriched["feature_vector"] = (
+                enriched[feature_cols]
+                .apply(
+                    lambda row: {
+                        col: row[col]
+                        for col in feature_cols
+                        if col in row and pd.notna(row[col])
+                    },
+                    axis=1,
+                )
+                .apply(_normalise_for_json)
+            )
+        else:
+            enriched["feature_vector"] = None
     else:
-        prepared["future_bsr"] = prepared["bsr"].shift(-horizon)
-    comparison = prepared["future_bsr"] < prepared["bsr"]
-    prepared["bsr_improved"] = comparison.fillna(False)
-    return prepared
+        enriched["feature_vector"] = None
+
+    if facts_df is not None and not facts_df.empty:
+        facts = _prepare_frame(facts_df)
+        fact_cols = [col for col in facts.columns if col not in {"asin", "site", "dt"}]
+        enriched = enriched.merge(facts, on=["asin", "site"], how="left", suffixes=("", "_fact"))
+        if fact_cols:
+            present_cols = [col for col in fact_cols if col in enriched.columns]
+            if present_cols:
+                enriched["metadata"] = (
+                    enriched[present_cols]
+                    .apply(
+                        lambda row: {
+                            col: row[col]
+                            for col in present_cols
+                            if pd.notna(row[col])
+                        },
+                        axis=1,
+                    )
+                    .apply(_normalise_for_json)
+                )
+            else:
+                enriched["metadata"] = None
+        else:
+            enriched["metadata"] = None
+    else:
+        enriched["metadata"] = None
+
+    return enriched
 
 
-def _compute_rank_target(group: pd.DataFrame) -> pd.DataFrame:
-    """Assign a percentile rank target based on future sales.
+def _derive_targets(
+    samples: pd.DataFrame,
+    thresholds: Thresholds,
+) -> pd.DataFrame:
+    """Compute target columns for binary, ranking and regression tasks."""
 
-    The input ``group`` is expected to contain a ``future_sales`` column. Rows
-    are ranked in descending order such that the highest ``future_sales`` value
-    receives the largest percentile. The resulting percentile is stored in the
-    ``y_rank`` column alongside the original data.
-    """
+    if samples.empty:
+        for target in ("y_bin", "y_rank", "y_reg"):
+            samples[target] = pd.Series(dtype="float64")
+        return samples
 
-    if "future_sales" not in group:
-        raise KeyError("future_sales column is required to compute rank target")
+    enriched = samples.copy()
+    enriched["y_reg"] = enriched["future_sales"].astype(float)
 
-    ranked = group.copy()
-    order = ranked["future_sales"].rank(method="min", ascending=False)
-    max_rank = order.max()
-    if pd.isna(max_rank) or max_rank == 0:
-        ranked["y_rank"] = pd.NA
-        return ranked
+    enriched["y_rank"] = (
+        enriched.groupby(["site", "t_ref"], sort=False)["y_reg"]
+        .transform(lambda col: col.rank(method="average", ascending=False, pct=True))
+    )
 
-    ranked["y_rank"] = (max_rank - order + 1) / max_rank
-    return ranked
+    enriched["growth"] = enriched["y_reg"] - enriched.get("past_sales", 0.0)
+    enriched["y_bin"] = (
+        (enriched["y_reg"] >= thresholds.r)
+        | (enriched["y_rank"].fillna(0.0) >= thresholds.p)
+        | (enriched["growth"].fillna(-np.inf) >= thresholds.delta)
+    ).astype(int)
+
+    return enriched
+
+
+def _assign_splits(samples: pd.DataFrame, config: SplitConfig) -> pd.DataFrame:
+    """Attach deterministic time-based train/valid/test splits."""
+
+    if samples.empty:
+        samples["split"] = pd.Series(dtype="string")
+        return samples
+
+    enriched = samples.copy()
+    unique_dates = np.sort(enriched["t_ref"].dropna().unique())
+    if len(unique_dates) == 0:
+        enriched["split"] = config.names[0]
+        return enriched
+
+    ratios = np.array(config.ratios, dtype=float)
+    if ratios.sum() == 0:
+        ratios = np.array([1.0, 0.0, 0.0])
+    ratios = ratios / ratios.sum()
+
+    counts = np.floor(ratios * len(unique_dates)).astype(int)
+    remainder = len(unique_dates) - counts.sum()
+    for idx in range(remainder):
+        counts[idx % len(counts)] += 1
+
+    boundaries: list[pd.Timestamp] = []
+    cursor = 0
+    for count in counts[:-1]:
+        cursor += count
+        if cursor == 0:
+            boundaries.append(unique_dates[0])
+        elif cursor >= len(unique_dates):
+            boundaries.append(unique_dates[-1])
+        else:
+            boundaries.append(unique_dates[cursor - 1])
+
+    if boundaries:
+        train_cutoff = boundaries[0]
+        valid_cutoff = boundaries[1] if len(boundaries) > 1 else unique_dates[-1]
+    else:
+        train_cutoff = unique_dates[-1]
+        valid_cutoff = unique_dates[-1]
+
+    conditions = [
+        enriched["t_ref"] <= train_cutoff,
+        enriched["t_ref"] <= valid_cutoff,
+    ]
+    choices = [config.names[0], config.names[1]]
+    enriched["split"] = np.select(conditions, choices, default=config.names[2])
+    return enriched
+
+
+def _compute_reports(samples: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Compute diagnostic reports for balance, coverage and missingness."""
+
+    if samples.empty:
+        return {
+            "balance": pd.DataFrame(columns=["split", "y_bin", "count"]),
+            "coverage": pd.DataFrame(columns=["split", "past_coverage", "future_coverage"]),
+            "mean_encoders": pd.DataFrame(columns=["split", "site", "site_mean_y_reg"]),
+            "global_stats": pd.DataFrame(columns=["split", "y_reg_mean", "y_reg_std", "n"]),
+            "missingness": pd.DataFrame(columns=["column", "missing_fraction"]),
+        }
+
+    reports: dict[str, pd.DataFrame] = {}
+
+    balance = (
+        samples.groupby(["split", "y_bin"], dropna=False)["asin"]
+        .count()
+        .rename("count")
+        .reset_index()
+    )
+    reports["balance"] = balance
+
+    coverage = (
+        samples.groupby("split")[ ["past_coverage", "future_coverage"] ].mean().reset_index()
+    )
+    reports["coverage"] = coverage
+
+    mean_targets = (
+        samples.groupby(["split", "site"], dropna=False)["y_reg"]
+        .mean()
+        .rename("site_mean_y_reg")
+        .reset_index()
+    )
+    reports["mean_encoders"] = mean_targets
+
+    global_stats = (
+        samples.groupby("split", dropna=False)["y_reg"]
+        .agg(["mean", "std", "count"])
+        .reset_index()
+        .rename(columns={"mean": "y_reg_mean", "std": "y_reg_std", "count": "n"})
+    )
+    reports["global_stats"] = global_stats
+
+    missingness = (
+        samples.isna()
+        .mean()
+        .rename("missing_fraction")
+        .reset_index()
+        .rename(columns={"index": "column"})
+    )
+    reports["missingness"] = missingness
+
+    return reports
+
+
+def _log_and_persist_reports(
+    reports: Mapping[str, pd.DataFrame],
+    logger: logging.Logger,
+    report_callback: Callable[[str, pd.DataFrame], None] | None,
+) -> None:
+    """Send diagnostic reports to the configured sinks."""
+
+    for name, frame in reports.items():
+        logger.info("%s report:\n%s", name, frame.to_string(index=False))
+        if report_callback is not None:
+            report_callback(name, frame)
+
+
+def _persist_split_tables(samples: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Create the split specific tables for downstream consumption."""
+
+    tables: dict[str, pd.DataFrame] = {}
+    for target, column in {
+        "train_samples_bin": "y_bin",
+        "train_samples_rank": "y_rank",
+        "train_samples_reg": "y_reg",
+    }.items():
+        subset_columns = [
+            col
+            for col in ["asin", "site", "t_ref", "split", column, "feature_vector", "metadata"]
+            if col in samples.columns
+        ]
+        if "split" not in samples.columns:
+            tables[target] = pd.DataFrame(columns=subset_columns)
+            continue
+        tables[target] = (
+            samples.loc[samples["split"] == "train", subset_columns]
+            .reset_index(drop=True)
+        )
+    return tables
+
+
+def build_labels(
+    mart_df: pd.DataFrame,
+    *,
+    features_df: pd.DataFrame | None = None,
+    facts_df: pd.DataFrame | None = None,
+    windows: LabelWindows | None = None,
+    thresholds: Thresholds | None = None,
+    split_config: SplitConfig | None = None,
+    logger: logging.Logger | None = None,
+    report_callback: Callable[[str, pd.DataFrame], None] | None = None,
+) -> BuildLabelsResult:
+    """Build supervised targets and diagnostic artifacts for the training job."""
+
+    logger = logger or logging.getLogger(__name__)
+    logger.debug("Starting label construction")
+
+    windows = windows or LabelWindows()
+    thresholds = thresholds or Thresholds()
+    split_config = split_config or SplitConfig()
+
+    samples = _daily_rolling_sampler(mart_df, windows)
+
+    if samples.empty:
+        logger.warning("No valid samples were generated for the provided inputs")
+        reports = _compute_reports(samples)
+        _log_and_persist_reports(reports, logger, report_callback)
+        tables = _persist_split_tables(samples)
+        return BuildLabelsResult(samples=samples, **tables, reports=reports)
+
+    samples = _attach_features(samples, features_df, facts_df)
+    samples = _derive_targets(samples, thresholds)
+    samples = _assign_splits(samples, split_config)
+
+    if not samples.empty:
+        samples["site_mean_y_reg"] = (
+            samples.groupby(["split", "site"], dropna=False)["y_reg"].transform("mean")
+        )
+        samples["split_mean_y_reg"] = (
+            samples.groupby("split", dropna=False)["y_reg"].transform("mean")
+        )
+
+    reports = _compute_reports(samples)
+    _log_and_persist_reports(reports, logger, report_callback)
+
+    tables = _persist_split_tables(samples)
+    logger.debug("Generated %d samples", len(samples))
+
+    return BuildLabelsResult(samples=samples, reports=reports, **tables)
 
 
 def _normalise_for_json(value: Any) -> Any:
