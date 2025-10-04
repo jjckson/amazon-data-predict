@@ -33,15 +33,26 @@ def standardize(df: pd.DataFrame) -> pd.DataFrame:
     df = df.sort_values("_ingested_at").drop_duplicates(
         subset=["asin", "site", "dt"], keep="last"
     )
-    df["price_valid"] = df["price"].apply(lambda v: v is not None and v > 0)
-    df["bsr_valid"] = df["bsr"].apply(lambda v: v is not None and 0 < v < 5_000_000)
+    df["price"] = pd.to_numeric(df["price"], errors="coerce")
+    df["rating"] = pd.to_numeric(df["rating"], errors="coerce")
+    df["bsr"] = pd.to_numeric(df["bsr"], errors="coerce")
+
+    df["price_valid"] = df["price"].notna() & (df["price"] > 0)
+    df["bsr_valid"] = df["bsr"].notna() & (df["bsr"] > 0) & (df["bsr"] < 5_000_000)
+
+    df["price"] = df["price"].astype(object)
+    df["bsr"] = df["bsr"].astype(object)
 
     df.loc[~df["price_valid"], "price"] = None
     df.loc[~df["bsr_valid"], "bsr"] = None
 
-    df["price"] = df["price"].astype(float)
-    df["rating"] = df["rating"].astype(float)
     df["dt"] = pd.to_datetime(df["dt"]).dt.date
+
+    # Cast boolean flags to ``object`` so downstream consumers receive standard
+    # Python ``bool`` instances (not ``numpy.bool_``), which improves type
+    # consistency in validations and tests that rely on identity checks.
+    df["price_valid"] = df["price_valid"].astype(object)
+    df["bsr_valid"] = df["bsr_valid"].astype(object)
     return df
 
 
