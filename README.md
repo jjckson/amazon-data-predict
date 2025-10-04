@@ -80,3 +80,17 @@ The scoring pipeline materialises data into `score_baseline_daily`. Use the view
 | Frequent 429 responses | Lower QPM in `config/settings.yaml` or verify rate limiter tenant separation |
 | Missing daily rows | Inspect validator coverage report and raw payload counts |
 | Score volatility | Review site/category MAD values; adjust weights in settings if needed |
+
+## Model Card Governance
+
+- The canonical template lives in [`docs/model_card_template.md`](docs/model_card_template.md). Copy it
+  for each release (for example `docs/model_card_v1.2.0.md`) and replace the placeholders with the
+  latest training data, metrics, and approvals.
+- Update the **Change History** table in the published model card with a new row that captures the
+  release tag, deployment date, concise summary of behavioural changes, and the accountable owner.
+- Refresh the **Data Scope**, **Metrics**, **Known Limits**, and **Compliance & Governance** sections
+  using evidence from the release validation package (offline evaluation notebook, monitoring
+  dashboards, policy reviews).
+- After merging the release branch, drop the link to the updated model card into the analytics
+  registry or deployment tracker so downstream consumers can find it alongside the promoted model
+  artefacts.
