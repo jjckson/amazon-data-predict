@@ -33,15 +33,18 @@ def standardize(df: pd.DataFrame) -> pd.DataFrame:
     df = df.sort_values("_ingested_at").drop_duplicates(
         subset=["asin", "site", "dt"], keep="last"
     )
-    df["price_valid"] = df["price"].apply(lambda v: v is not None and v > 0)
-    df["bsr_valid"] = df["bsr"].apply(lambda v: v is not None and 0 < v < 5_000_000)
+    price_valid = df["price"].apply(lambda v: v is not None and v > 0)
+    bsr_valid = df["bsr"].apply(lambda v: v is not None and 0 < v < 5_000_000)
 
-    df.loc[~df["price_valid"], "price"] = None
-    df.loc[~df["bsr_valid"], "bsr"] = None
+    df["price_valid"] = price_valid.astype(object)
+    df["bsr_valid"] = bsr_valid.astype(object)
 
-    df["price"] = df["price"].astype(float)
+    df["price"] = df["price"].astype(float).astype(object)
+    df["bsr"] = df["bsr"].astype(float).astype(object)
     df["rating"] = df["rating"].astype(float)
-    df["dt"] = pd.to_datetime(df["dt"]).dt.date
+    df.loc[~price_valid, "price"] = None
+    df.loc[~bsr_valid, "bsr"] = None
+    df["dt"] = pd.to_datetime(df["dt"]).dt.normalize()
     return df
 
 
