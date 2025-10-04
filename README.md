@@ -73,6 +73,35 @@ The scoring pipeline materialises data into `score_baseline_daily`. Use the view
 - Mock connectors in tests using `tests/` fixtures; see provided unit tests as templates.
 - Keep credentials exclusively in `.env` (never commit secrets).
 
+## A/B Testing Utilities
+
+Two helper modules under `abtest/` support deterministic traffic routing and offline
+evaluation of experiment variants:
+
+- `abtest/traffic_split.py` exposes `TrafficSplitter` for hashing ASINs (or any
+  identifier) into experiment buckets. Allocations can be customised globally or
+  per-category and every assignment is recorded via an in-memory audit trail that
+  can optionally be forwarded to the standard logging stack.
+- `abtest/uplift_eval.py` includes `evaluate_uplift`/`UpliftEvaluator` for
+  summarising offline impression logs. The evaluator aggregates CTR, CR, GMV per
+  impression, and ROAS, computes lifts versus a control, and performs
+  significance testing using normal approximations.
+
+### Offline Evaluation Workflow
+
+1. Build an aggregated dataframe with at least `variant`, `impressions`,
+   `clicks`, `conversions`, `gmv`, and `spend` columns. Optionally include
+   `gmv_sq` (sum of squared per-impression GMV values), and `roas` / `roas_sq`
+   (sum and squared sum of per-impression ROAS values) to unlock p-values for
+   the revenue metrics.
+2. Call `report = evaluate_uplift(df, control_variant="control")` or use the
+   `UpliftEvaluator` class inside notebooks/pipelines.
+3. Export results through `report.to_dataframe()` for further processing or
+   `report.to_markdown()` for lightweight reporting.
+
+See `tests/test_abtest.py` for an end-to-end example that mirrors offline
+evaluation and validates the reporting surface.
+
 ## Troubleshooting
 
 | Symptom | Suggested Action |
