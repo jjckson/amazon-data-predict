@@ -5,6 +5,7 @@ import argparse
 from datetime import date
 from typing import Iterable
 
+import numpy as np
 import pandas as pd
 
 from utils.logging import get_logger
@@ -33,18 +34,18 @@ def standardize(df: pd.DataFrame) -> pd.DataFrame:
     df = df.sort_values("_ingested_at").drop_duplicates(
         subset=["asin", "site", "dt"], keep="last"
     )
-    price = pd.to_numeric(df["price"], errors="coerce")
-    bsr = pd.to_numeric(df["bsr"], errors="coerce")
-    rating = pd.to_numeric(df["rating"], errors="coerce")
+    price = pd.to_numeric(df["price"], errors="coerce").astype("float64")
+    bsr = pd.to_numeric(df["bsr"], errors="coerce").astype("float64")
+    rating = pd.to_numeric(df["rating"], errors="coerce").astype("float64")
 
     price_valid = price.notna() & (price > 0)
     bsr_valid = bsr.notna() & (bsr > 0) & (bsr < 5_000_000)
 
-    df["price_valid"] = price_valid
-    df["bsr_valid"] = bsr_valid
+    df["price_valid"] = price_valid.astype(bool)
+    df["bsr_valid"] = bsr_valid.astype(bool)
 
-    df["price"] = price.where(price_valid)
-    df["bsr"] = bsr.where(bsr_valid)
+    df["price"] = price.where(price_valid, np.nan)
+    df["bsr"] = bsr.where(bsr_valid, np.nan)
     df["rating"] = rating
     df["dt"] = pd.to_datetime(df["dt"]).dt.normalize()
     return df

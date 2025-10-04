@@ -42,6 +42,11 @@ def test_standardize_handles_duplicates_and_flags():
 
     result = run([raw])
     assert len(result) == 1
+    assert pd.api.types.is_float_dtype(result["price"])
+    assert pd.api.types.is_float_dtype(result["bsr"])
+    assert pd.api.types.is_float_dtype(result["rating"])
+    assert pd.api.types.is_bool_dtype(result["price_valid"])
+    assert pd.api.types.is_bool_dtype(result["bsr_valid"])
     row = result.iloc[0]
     assert bool(row["price_valid"])
     assert not row["bsr_valid"]
