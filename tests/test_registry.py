@@ -27,6 +27,23 @@ def test_dataclass_allows_slots_on_older_interpreters(monkeypatch) -> None:
     assert instance.value == 42
 
 
+def test_dataclass_handles_no_keyword_arguments_message(monkeypatch) -> None:
+    original_dataclass = dataclasses.dataclass
+
+    def fake_dataclass(*args, **kwargs):
+        if kwargs:
+            raise TypeError("dataclass() takes no keyword arguments")
+        return original_dataclass(*args, **kwargs)
+
+    monkeypatch.setattr(dataclasses, "dataclass", fake_dataclass)
+
+    @registry.dataclass(slots=True)
+    class Example:
+        value: int
+
+    assert dataclasses.is_dataclass(Example)
+
+
 def test_dataclass_preserves_other_type_errors(monkeypatch) -> None:
     original_dataclass = dataclasses.dataclass
 

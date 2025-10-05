@@ -48,10 +48,10 @@ def dataclass(
             # the unexpected ``slots`` keyword argument.  Only swallow that
             # specific failure; any other TypeError should propagate so the caller
             # is aware of genuine configuration issues.
-            message = str(error)
-            if "slots" not in message:
-                raise
-            if "unexpected keyword argument" not in message:
+            message = (error.args[0] if error.args else str(error)).lower()
+            accepts_no_keywords = "takes no keyword arguments" in message
+            unexpected_slots = "slots" in message and "unexpected keyword argument" in message
+            if not (accepts_no_keywords or unexpected_slots):
                 raise
             return dataclasses.dataclass(cls, **kwargs)
 
