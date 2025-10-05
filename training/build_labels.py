@@ -32,9 +32,9 @@ class LabelWindows:
 class Thresholds:
     """Threshold parameters used by the different targets."""
 
-    r: float = 0.0  # sales ratio threshold for the binary label
-    p: float = 0.8  # BSR percentile drop threshold for the binary label
-    delta: float = 0.0  # BSR rank improvement threshold for the binary label
+    r: float = 1.6  # sales ratio threshold for the binary label
+    p: float = 0.2  # BSR percentile drop threshold (0-1 scale) for the binary label
+    delta: float = 1.0  # BSR rank improvement threshold for the binary label
 
 
 @dataclass(frozen=True)
@@ -326,7 +326,7 @@ def _derive_targets(
     )
     sales_ratio_arr = np.where(
         zero_or_negative_past & ~positive_future,
-        0.0,
+        np.nan,
         sales_ratio_arr,
     )
     enriched["sales_ratio"] = pd.Series(sales_ratio_arr, index=enriched.index)
@@ -339,9 +339,15 @@ def _derive_targets(
     future_bsr_rank = enriched.get("future_bsr_rank", pd.Series(np.nan, index=enriched.index)).astype(float)
     enriched["bsr_rank_improvement"] = past_bsr_rank - future_bsr_rank
 
-    ratio_condition = enriched["sales_ratio"].fillna(-np.inf) >= thresholds.r
-    percentile_condition = enriched["bsr_percentile_drop"].fillna(-np.inf) >= thresholds.p
-    rank_condition = enriched["bsr_rank_improvement"].fillna(-np.inf) >= thresholds.delta
+    sales_ratio_values = enriched["sales_ratio"]
+    ratio_condition = (sales_ratio_values >= thresholds.r) | sales_ratio_values.isna()
+
+    percentile_values = enriched["bsr_percentile_drop"]
+    percentile_condition = (percentile_values >= thresholds.p).fillna(False)
+
+    rank_values = enriched["bsr_rank_improvement"]
+    rank_condition = (rank_values > thresholds.delta).fillna(False)
+
     enriched["y_bin"] = (ratio_condition & (percentile_condition | rank_condition)).astype(int)
 
     return enriched

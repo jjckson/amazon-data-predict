@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -180,7 +181,56 @@ def test_rank_based_positive_with_missing_percentile() -> None:
     assert row.y_bin == 1
 
 
-def test_zero_past_sales_results_in_zero_ratio() -> None:
+def test_default_threshold_requires_bsr_signal() -> None:
+    mart_df = pd.DataFrame(
+        {
+            "asin": ["A", "A", "A", "A"],
+            "site": ["US", "US", "US", "US"],
+            "dt": [
+                "2021-01-01",
+                "2021-01-02",
+                "2021-01-03",
+                "2021-01-04",
+            ],
+            "sales": [10, 10, 40, 40],
+            "bsr_percentile": [0.4, 0.4, 0.4, 0.4],
+            "bsr_rank": [100, 100, 100, 100],
+        }
+    )
+
+    result = build_labels(mart_df, windows=LabelWindows(observation_days=2, forecast_days=1))
+
+    samples = result.samples.sort_values("t_ref").reset_index(drop=True)
+    assert len(samples) == 2
+    row = samples.iloc[0]
+    assert row.sales_ratio == pytest.approx(40 / 20)
+    assert row.bsr_percentile_drop == pytest.approx(0.0)
+    assert row.bsr_rank_improvement == pytest.approx(0.0)
+    assert row.y_bin == 0
+
+
+def test_rank_signal_allows_neutral_ratio() -> None:
+    mart_df = pd.DataFrame(
+        {
+            "asin": ["A", "A", "A"],
+            "site": ["US", "US", "US"],
+            "dt": ["2021-01-01", "2021-01-02", "2021-01-03"],
+            "sales": [0, 0, 0],
+            "bsr_rank": [300, 200, 100],
+        }
+    )
+
+    result = build_labels(mart_df, windows=LabelWindows(observation_days=2, forecast_days=1))
+
+    samples = result.samples.sort_values("t_ref").reset_index(drop=True)
+    assert len(samples) == 1
+    row = samples.iloc[0]
+    assert np.isnan(row.sales_ratio)
+    assert row.bsr_rank_improvement == pytest.approx(150.0)
+    assert row.y_bin == 1
+
+
+def test_zero_past_sales_results_in_neutral_ratio() -> None:
     mart_df = pd.DataFrame(
         {
             "asin": ["A", "A"],
@@ -209,8 +259,8 @@ def test_zero_past_sales_results_in_zero_ratio() -> None:
     samples = result.samples
     assert len(samples) == 1
     row = samples.iloc[0]
-    assert row.sales_ratio == 0.0
-    assert row.y_bin == 0
+    assert pd.isna(row.sales_ratio)
+    assert row.y_bin == 1
 
 
 def test_missing_bsr_fields_prevent_positive_label() -> None:
