@@ -123,3 +123,32 @@ evaluation and validates the reporting surface.
 - After merging the release branch, drop the link to the updated model card into the analytics
   registry or deployment tracker so downstream consumers can find it alongside the promoted model
   artefacts.
+
+## Model Registry Operations
+
+`training/registry.py` exposes a lightweight interface for managing model versions either in the
+MLflow Model Registry (when a tracking server is reachable) or via a local JSON file for
+disconnected development environments. The CLI mirrors the most common flows:
+
+```bash
+# Register a model version using the current MLflow tracking URI or the --registry-file override
+python -m training.registry register \
+  --name rank_v1 \
+  --artifact-uri runs:/abc123/model \
+  --signature signature.json \
+  --metric auc=0.91 \
+  --data-span 2024-01-01:2024-01-15 \
+  --feature-version features:v5
+
+# Promote a version to production after signature validation against the active deployment
+python -m training.registry promote --name rank_v1 --version 2 --to prod
+
+# List tracked versions with their metadata
+python -m training.registry list --name rank_v1
+```
+
+If MLflow is unavailable (or `mlflow` is not installed), pass `--local --registry-file runs/registry.json`
+to persist metadata locally. Promotions to *Staging* or *Production* validate the stored signature and
+feature contract so that only compatible models can replace the active deployment. The JSON registry
+captures the recorded `artifact_uri`, `metrics`, `data_span`, `feature_version`, and `signature` for
+each version to support reproducibility outside MLflow.
