@@ -22,6 +22,11 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     },
     "features": {"rolling": [7, 14, 30]},
     "scoring": {
+        "model_version": "rank-lgbm",
+        "model_path": "artifacts/rank/model.txt",
+        "price_band_column": "price_band",
+        "identifier_columns": ["asin", "site", "dt", "category", "price_band"],
+        "group_by_columns": ["site", "category", "price_band"],
         "weights": {
             "bsr_trend_30": 0.35,
             "est_sales_30": 0.25,
