@@ -19,7 +19,7 @@ class LabelWindows:
     """Configuration for observation (W) and forecast (H) windows."""
 
     observation_days: int = 28
-    forecast_days: int = 7
+    forecast_days: int = 30
 
     def __post_init__(self) -> None:  # pragma: no cover - trivial validation
         if self.observation_days <= 0:
@@ -32,9 +32,9 @@ class LabelWindows:
 class Thresholds:
     """Threshold parameters used by the different targets."""
 
-    r: float = 0.0  # sales threshold for binary label
-    p: float = 0.8  # percentile threshold for binary label
-    delta: float = 0.0  # growth threshold for binary label
+    r: float = 0.0  # sales ratio threshold for the binary label
+    p: float = 0.8  # BSR percentile drop threshold for the binary label
+    delta: float = 0.0  # BSR rank improvement threshold for the binary label
 
 
 @dataclass(frozen=True)
@@ -131,6 +131,18 @@ def _compute_window_aggregates(
         "past_coverage": unique_past_days / expected_past_days if expected_past_days else np.nan,
         "future_coverage": unique_future_days / expected_future_days if expected_future_days else np.nan,
     }
+
+    for column in ("bsr_percentile", "bsr_rank"):
+        past_column = f"past_{column}"
+        future_column = f"future_{column}"
+        if column in past_slice.columns:
+            aggregates[past_column] = past_slice[column].mean()
+        else:
+            aggregates[past_column] = np.nan
+        if column in future_slice.columns:
+            aggregates[future_column] = future_slice[column].mean()
+        else:
+            aggregates[future_column] = np.nan
 
     if not past_slice.empty:
         aggregates["past_mean_sales"] = past_slice["sales"].mean()
@@ -274,17 +286,63 @@ def _derive_targets(
     enriched = samples.copy()
     enriched["y_reg"] = enriched["future_sales"].astype(float)
 
+    category_series = enriched.get("category_id")
+    site_fallback = enriched.get("site")
+    if category_series is None:
+        category_series = site_fallback
+    category_labels = category_series.fillna("unknown_category").astype("string")
+
+    price_band_series = enriched.get("price_band")
+    if price_band_series is not None and price_band_series.notna().any():
+        price_labels = price_band_series.fillna("unknown_price_band").astype("string")
+        group_id = category_labels + "|" + price_labels
+    else:
+        group_id = category_labels
+    enriched["group_id"] = group_id
+
     enriched["y_rank"] = (
-        enriched.groupby(["site", "t_ref"], sort=False)["y_reg"]
+        enriched.groupby(["group_id", "t_ref"], sort=False)["y_reg"]
         .transform(lambda col: col.rank(method="average", ascending=False, pct=True))
     )
 
-    enriched["growth"] = enriched["y_reg"] - enriched.get("past_sales", 0.0)
-    enriched["y_bin"] = (
-        (enriched["y_reg"] >= thresholds.r)
-        | (enriched["y_rank"].fillna(0.0) >= thresholds.p)
-        | (enriched["growth"].fillna(-np.inf) >= thresholds.delta)
-    ).astype(int)
+    past_sales = enriched.get("past_sales", pd.Series(dtype=float)).astype(float)
+    future_sales = enriched.get("future_sales", pd.Series(dtype=float)).astype(float)
+
+    past_sales_arr = past_sales.to_numpy()
+    future_sales_arr = future_sales.to_numpy()
+    with np.errstate(divide="ignore", invalid="ignore"):
+        sales_ratio_arr = np.divide(
+            future_sales_arr,
+            past_sales_arr,
+            out=np.full_like(future_sales_arr, np.nan, dtype=float),
+            where=past_sales_arr > 0,
+        )
+    zero_or_negative_past = past_sales_arr <= 0
+    positive_future = future_sales_arr > 0
+    sales_ratio_arr = np.where(
+        zero_or_negative_past & positive_future,
+        np.inf,
+        sales_ratio_arr,
+    )
+    sales_ratio_arr = np.where(
+        zero_or_negative_past & ~positive_future,
+        0.0,
+        sales_ratio_arr,
+    )
+    enriched["sales_ratio"] = pd.Series(sales_ratio_arr, index=enriched.index)
+
+    past_bsr_pct = enriched.get("past_bsr_percentile", pd.Series(np.nan, index=enriched.index)).astype(float)
+    future_bsr_pct = enriched.get("future_bsr_percentile", pd.Series(np.nan, index=enriched.index)).astype(float)
+    enriched["bsr_percentile_drop"] = past_bsr_pct - future_bsr_pct
+
+    past_bsr_rank = enriched.get("past_bsr_rank", pd.Series(np.nan, index=enriched.index)).astype(float)
+    future_bsr_rank = enriched.get("future_bsr_rank", pd.Series(np.nan, index=enriched.index)).astype(float)
+    enriched["bsr_rank_improvement"] = past_bsr_rank - future_bsr_rank
+
+    ratio_condition = enriched["sales_ratio"].fillna(-np.inf) >= thresholds.r
+    percentile_condition = enriched["bsr_percentile_drop"].fillna(-np.inf) >= thresholds.p
+    rank_condition = enriched["bsr_rank_improvement"].fillna(-np.inf) >= thresholds.delta
+    enriched["y_bin"] = (ratio_condition & (percentile_condition | rank_condition)).astype(int)
 
     return enriched
 
@@ -348,6 +406,15 @@ def _compute_reports(samples: pd.DataFrame) -> dict[str, pd.DataFrame]:
             "coverage": pd.DataFrame(columns=["split", "past_coverage", "future_coverage"]),
             "mean_encoders": pd.DataFrame(columns=["split", "site", "site_mean_y_reg"]),
             "global_stats": pd.DataFrame(columns=["split", "y_reg_mean", "y_reg_std", "n"]),
+            "bsr_availability": pd.DataFrame(
+                columns=[
+                    "split",
+                    "past_bsr_percentile",
+                    "future_bsr_percentile",
+                    "past_bsr_rank",
+                    "future_bsr_rank",
+                ]
+            ),
             "missingness": pd.DataFrame(columns=["column", "missing_fraction"]),
         }
 
@@ -381,6 +448,24 @@ def _compute_reports(samples: pd.DataFrame) -> dict[str, pd.DataFrame]:
         .rename(columns={"mean": "y_reg_mean", "std": "y_reg_std", "count": "n"})
     )
     reports["global_stats"] = global_stats
+
+    bsr_columns = [
+        col
+        for col in [
+            "past_bsr_percentile",
+            "future_bsr_percentile",
+            "past_bsr_rank",
+            "future_bsr_rank",
+        ]
+        if col in samples.columns
+    ]
+    if bsr_columns:
+        bsr_availability = (
+            samples.groupby("split", dropna=False)[bsr_columns]
+            .agg(lambda series: series.notna().mean())
+            .reset_index()
+        )
+        reports["bsr_availability"] = bsr_availability
 
     missingness = (
         samples.isna()
