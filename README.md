@@ -73,6 +73,17 @@ The scoring pipeline materialises data into `score_baseline_daily`. Use the view
 - Mock connectors in tests using `tests/` fixtures; see provided unit tests as templates.
 - Keep credentials exclusively in `.env` (never commit secrets).
 
+## Ranking Model Training
+
+- `training/train_rank.py` trains the LambdaRank model and now reports group-based `ndcg@k`,
+  `recall@k`, mean average precision (MAP), and lift against an optional baseline score column.
+- Supply historical baseline predictions via `--baseline-score-column` to unlock lift curve
+  reporting. The script exports three artefacts under the specified `--output-dir`:
+  - `metrics.json` with aggregated metrics and the lift curve payload.
+  - `metrics.csv` containing a tabular snapshot of the aggregated metrics for spreadsheets.
+  - `lift_curve.csv` describing the mean recall, baseline recall, and lift at each requested cut.
+- All metrics are logged through `RunLogger` for experiment tracking.
+
 ## A/B Testing Utilities
 
 Two helper modules under `abtest/` support deterministic traffic routing and offline

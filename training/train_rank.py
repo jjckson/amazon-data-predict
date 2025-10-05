@@ -10,7 +10,7 @@ from typing import Iterable, Sequence
 import numpy as np
 import pandas as pd
 
-from training.eval_metrics import compute_ranking_metrics
+from training.eval_metrics import compute_ranking_metrics, lift_curve
 from training.run_logger import RunLogger
 
 
@@ -138,10 +138,15 @@ def train_model(args: argparse.Namespace) -> dict[str, float]:
     group_col = _detect_group_column(df, args.group_column)
     label_col = _detect_label_column(df, args.label_column)
     weight_col = args.weight_column if args.weight_column and args.weight_column in df.columns else None
+    baseline_col = args.baseline_score_column if args.baseline_score_column else None
+    if baseline_col and baseline_col not in df.columns:
+        raise KeyError(f"Baseline score column '{baseline_col}' not found in dataset")
 
     train_df, val_df = _train_validation_split(df, group_col, args.validation_fraction, args.random_state)
 
     drop_columns = set(args.drop_columns or [])
+    if baseline_col:
+        drop_columns.add(baseline_col)
     train_df = train_df.sort_values(group_col).reset_index(drop=True)
     val_df = val_df.sort_values(group_col).reset_index(drop=True)
 
@@ -202,8 +207,27 @@ def train_model(args: argparse.Namespace) -> dict[str, float]:
         LOGGER.info("Best iteration: %s", best_iteration)
 
         val_predictions = booster.predict(val_features, num_iteration=best_iteration)
-        ranking_metrics = compute_ranking_metrics(val_df[label_col], val_predictions, val_df[group_col], ks=(5, 10, 20, 50))
+        baseline_scores = val_df[baseline_col] if baseline_col else None
+        ranking_metrics = compute_ranking_metrics(
+            val_df[label_col],
+            val_predictions,
+            val_df[group_col],
+            ks=(5, 10, 20, 50),
+            baseline_score=baseline_scores,
+        )
         run.log_metrics(ranking_metrics)
+
+        lift_records = (
+            lift_curve(
+                val_df[label_col],
+                val_predictions,
+                baseline_scores,
+                val_df[group_col],
+                ks=(5, 10, 20, 50),
+            )
+            if baseline_scores is not None
+            else []
+        )
 
         feature_importances = pd.DataFrame(
             {
@@ -231,8 +255,20 @@ def train_model(args: argparse.Namespace) -> dict[str, float]:
         run.log_artifact(model_path)
 
         metrics_path = Path(args.output_dir) / "metrics.json"
-        metrics_path.write_text(json.dumps(ranking_metrics, indent=2), encoding="utf-8")
+        metrics_payload: dict[str, object] = {"metrics": ranking_metrics}
+        if lift_records:
+            metrics_payload["lift_curve"] = lift_records
+        metrics_path.write_text(json.dumps(metrics_payload, indent=2), encoding="utf-8")
         run.log_artifact(metrics_path)
+
+        metrics_csv_path = Path(args.output_dir) / "metrics.csv"
+        pd.DataFrame([ranking_metrics]).to_csv(metrics_csv_path, index=False)
+        run.log_artifact(metrics_csv_path)
+
+        if lift_records:
+            lift_path = Path(args.output_dir) / "lift_curve.csv"
+            pd.DataFrame(lift_records).to_csv(lift_path, index=False)
+            run.log_artifact(lift_path)
 
     return ranking_metrics
 
@@ -246,6 +282,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--group-column", type=str, default=None, help="Column containing group identifiers")
     parser.add_argument("--label-column", type=str, default=None, help="Column containing rank labels")
     parser.add_argument("--weight-column", type=str, default=None, help="Optional sample weight column")
+    parser.add_argument(
+        "--baseline-score-column",
+        type=str,
+        default=None,
+        help="Optional column containing baseline scores for lift comparison",
+    )
     parser.add_argument("--drop-columns", nargs="*", default=None, help="Additional columns to drop from features")
     parser.add_argument("--validation-fraction", type=float, default=0.2, help="Fraction of groups used for validation")
     parser.add_argument("--random-state", type=int, default=42, help="Random seed for deterministic behaviour")
