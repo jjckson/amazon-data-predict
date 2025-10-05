@@ -34,23 +34,26 @@ def dataclass(
     """
 
     sentinel = object()
+    kwargs = dict(kwargs)
     slots_value = kwargs.pop("slots", sentinel)
-    kwargs_without_slots = dict(kwargs)
 
     def _apply(cls: type[_T]) -> type[_T]:
         if slots_value is sentinel:
-            return dataclasses.dataclass(cls, **kwargs_without_slots)
+            return dataclasses.dataclass(cls, **kwargs)
 
         try:
-            return dataclasses.dataclass(cls, slots=slots_value, **kwargs_without_slots)
+            return dataclasses.dataclass(cls, slots=slots_value, **kwargs)
         except TypeError as error:
             # On Python < 3.10, ``dataclasses.dataclass`` raises a ``TypeError`` for
             # the unexpected ``slots`` keyword argument.  Only swallow that
             # specific failure; any other TypeError should propagate so the caller
             # is aware of genuine configuration issues.
-            if "slots" not in str(error):
+            message = str(error)
+            if "slots" not in message:
                 raise
-            return dataclasses.dataclass(cls, **kwargs_without_slots)
+            if "unexpected keyword argument" not in message:
+                raise
+            return dataclasses.dataclass(cls, **kwargs)
 
     if _cls is None:
         return _apply
