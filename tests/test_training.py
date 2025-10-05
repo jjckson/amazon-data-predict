@@ -94,7 +94,7 @@ def test_sparse_sales_coverage_and_targets() -> None:
     assert first.future_sales == 4
     assert first.y_bin == 0
     assert first.sales_ratio == pytest.approx(4 / 12)
-    assert first.group_id == "c1|premium"
+    assert first.group_id == "US|c1|premium"
 
     assert pytest.approx(second.past_coverage, rel=1e-6) == 2 / 3
     assert pytest.approx(second.future_coverage, rel=1e-6) == 0.5
@@ -106,6 +106,69 @@ def test_sparse_sales_coverage_and_targets() -> None:
     assert set(result.train_samples_reg["asin"]) == set(samples["asin"])
     assert all(result.train_samples_reg["split"] == "train")
     assert all(samples["site_mean_y_reg"] == samples["split_mean_y_reg"])
+
+
+def test_group_id_includes_site_for_cross_site_separation() -> None:
+    mart_df = pd.DataFrame(
+        {
+            "asin": [
+                "US_A",
+                "US_A",
+                "US_B",
+                "US_B",
+                "UK_A",
+                "UK_A",
+                "UK_B",
+                "UK_B",
+            ],
+            "site": [
+                "US",
+                "US",
+                "US",
+                "US",
+                "UK",
+                "UK",
+                "UK",
+                "UK",
+            ],
+            "dt": [
+                "2021-01-01",
+                "2021-01-02",
+                "2021-01-01",
+                "2021-01-02",
+                "2021-01-01",
+                "2021-01-02",
+                "2021-01-01",
+                "2021-01-02",
+            ],
+            "sales": [10, 20, 15, 5, 7, 3, 9, 12],
+        }
+    )
+
+    facts_df = pd.DataFrame(
+        {
+            "asin": ["US_A", "US_B", "UK_A", "UK_B"],
+            "site": ["US", "US", "UK", "UK"],
+            "category_id": ["c1", "c1", "c1", "c1"],
+            "price_band": ["mid", "mid", "mid", "mid"],
+        }
+    )
+
+    result = build_labels(
+        mart_df,
+        facts_df=facts_df,
+        windows=LabelWindows(observation_days=1, forecast_days=1),
+        thresholds=Thresholds(r=0.1, p=0.1, delta=1),
+    )
+
+    samples = result.samples.sort_values(["site", "asin"]).reset_index(drop=True)
+    assert set(samples["group_id"]) == {"US|c1|mid", "UK|c1|mid"}
+
+    counts = samples.groupby(["group_id", "t_ref"])["asin"].count().tolist()
+    assert counts == [2, 2]
+
+    sites_in_group = samples["group_id"].str.split("|", n=1, expand=True)
+    assert set(sites_in_group[0]) == {"US", "UK"}
 
 
 def test_percentile_ties_share_rank() -> None:
