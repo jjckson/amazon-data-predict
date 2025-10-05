@@ -32,6 +32,7 @@ def test_empty_windows_returns_empty_tables() -> None:
     assert set(result.reports.keys()) == {
         "balance",
         "coverage",
+        "bsr_availability",
         "missingness",
         "mean_encoders",
         "global_stats",
@@ -63,13 +64,24 @@ def test_sparse_sales_coverage_and_targets() -> None:
                 "2021-01-06",
             ],
             "sales": [5, 7, 4, 8, 0, 0, 0, 0],
+            "bsr_percentile": [0.7, 0.6, 0.55, 0.4, 0.95, 0.96, 0.97, 0.98],
+        }
+    )
+
+    facts_df = pd.DataFrame(
+        {
+            "asin": ["A", "B"],
+            "site": ["US", "US"],
+            "category_id": ["c1", "c1"],
+            "price_band": ["premium", "value"],
         }
     )
 
     result = build_labels(
         mart_df,
+        facts_df=facts_df,
         windows=LabelWindows(observation_days=3, forecast_days=2),
-        thresholds=Thresholds(r=6, p=0.95, delta=3),
+        thresholds=Thresholds(r=0.5, p=0.1, delta=1),
     )
 
     samples = result.samples.sort_values(["asin", "t_ref"]).reset_index(drop=True)
@@ -81,11 +93,15 @@ def test_sparse_sales_coverage_and_targets() -> None:
     assert pytest.approx(first.future_coverage, rel=1e-6) == 0.5
     assert first.future_sales == 4
     assert first.y_bin == 0
+    assert first.sales_ratio == pytest.approx(4 / 12)
+    assert first.group_id == "c1|premium"
 
     assert pytest.approx(second.past_coverage, rel=1e-6) == 2 / 3
     assert pytest.approx(second.future_coverage, rel=1e-6) == 0.5
     assert second.future_sales == 8
     assert second.y_bin == 1
+    assert second.sales_ratio == pytest.approx(8 / 11)
+    assert second.bsr_percentile_drop == pytest.approx(0.175, rel=1e-6)
 
     assert set(result.train_samples_reg["asin"]) == set(samples["asin"])
     assert all(result.train_samples_reg["split"] == "train")
@@ -104,19 +120,131 @@ def test_percentile_ties_share_rank() -> None:
                 "2021-01-02",
             ],
             "sales": [1, 5, 2, 5],
+            "bsr_rank": [200, 150, 220, 150],
+        }
+    )
+
+    facts_df = pd.DataFrame(
+        {
+            "asin": ["A", "B"],
+            "site": ["US", "US"],
+            "category_id": ["c1", "c1"],
         }
     )
 
     result = build_labels(
         mart_df,
+        facts_df=facts_df,
         windows=LabelWindows(observation_days=1, forecast_days=1),
-        thresholds=Thresholds(r=10, p=0.5, delta=1),
+        thresholds=Thresholds(r=0.1, p=0.1, delta=5),
     )
 
     samples = result.samples.sort_values(["t_ref", "asin"]).reset_index(drop=True)
     assert len(samples) == 2
     assert pytest.approx(samples.loc[0, "y_rank"]) == pytest.approx(samples.loc[1, "y_rank"])
     assert samples.loc[0, "y_rank"] == pytest.approx(0.75)
+
+
+def test_rank_based_positive_with_missing_percentile() -> None:
+    mart_df = pd.DataFrame(
+        {
+            "asin": ["A", "A", "A"],
+            "site": ["US", "US", "US"],
+            "dt": ["2021-01-01", "2021-01-02", "2021-01-03"],
+            "sales": [0, 2, 6],
+            "bsr_rank": [500, 400, 200],
+        }
+    )
+
+    facts_df = pd.DataFrame(
+        {
+            "asin": ["A"],
+            "site": ["US"],
+            "category_id": ["c2"],
+        }
+    )
+
+    result = build_labels(
+        mart_df,
+        facts_df=facts_df,
+        windows=LabelWindows(observation_days=2, forecast_days=1),
+        thresholds=Thresholds(r=0.5, p=0.2, delta=150),
+    )
+
+    samples = result.samples.sort_values("t_ref").reset_index(drop=True)
+    assert len(samples) == 1
+    row = samples.iloc[0]
+    assert row.sales_ratio == pytest.approx(6 / 2)
+    assert pd.isna(row.bsr_percentile_drop)
+    assert row.bsr_rank_improvement == pytest.approx(250)
+    assert row.y_bin == 1
+
+
+def test_zero_past_sales_results_in_zero_ratio() -> None:
+    mart_df = pd.DataFrame(
+        {
+            "asin": ["A", "A"],
+            "site": ["US", "US"],
+            "dt": ["2021-01-01", "2021-01-02"],
+            "sales": [0, 0],
+            "bsr_percentile": [0.9, 0.8],
+        }
+    )
+
+    facts_df = pd.DataFrame(
+        {
+            "asin": ["A"],
+            "site": ["US"],
+            "category_id": ["c3"],
+        }
+    )
+
+    result = build_labels(
+        mart_df,
+        facts_df=facts_df,
+        windows=LabelWindows(observation_days=1, forecast_days=1),
+        thresholds=Thresholds(r=0.1, p=0.05, delta=10),
+    )
+
+    samples = result.samples
+    assert len(samples) == 1
+    row = samples.iloc[0]
+    assert row.sales_ratio == 0.0
+    assert row.y_bin == 0
+
+
+def test_missing_bsr_fields_prevent_positive_label() -> None:
+    mart_df = pd.DataFrame(
+        {
+            "asin": ["A", "A", "A"],
+            "site": ["US", "US", "US"],
+            "dt": ["2021-01-01", "2021-01-02", "2021-01-03"],
+            "sales": [1, 1, 10],
+        }
+    )
+
+    facts_df = pd.DataFrame(
+        {
+            "asin": ["A"],
+            "site": ["US"],
+            "category_id": ["c4"],
+        }
+    )
+
+    result = build_labels(
+        mart_df,
+        facts_df=facts_df,
+        windows=LabelWindows(observation_days=2, forecast_days=1),
+        thresholds=Thresholds(r=1.5, p=0.1, delta=20),
+    )
+
+    samples = result.samples
+    assert len(samples) == 1
+    row = samples.iloc[0]
+    assert row.sales_ratio > 1.5
+    assert pd.isna(row.bsr_percentile_drop)
+    assert pd.isna(row.bsr_rank_improvement)
+    assert row.y_bin == 0
 
 
 def test_feature_leakage_guard() -> None:

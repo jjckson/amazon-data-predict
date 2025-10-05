@@ -7,7 +7,7 @@ import pytest
 pd = pytest.importorskip("pandas")
 
 from pipelines.etl_standardize import run
-from training.build_labels import build_labels
+from training.build_labels import LabelWindows, Thresholds, build_labels
 
 
 def test_standardize_handles_duplicates_and_flags():
@@ -60,6 +60,7 @@ def test_standardize_and_build_labels_handle_invalid_bsr():
                 "asin": "A",
                 "site": "US",
                 "dt": "2024-01-01",
+                "sales": 0,
                 "price": 10,
                 "bsr": "not-a-number",
                 "rating": 4.5,
@@ -72,6 +73,7 @@ def test_standardize_and_build_labels_handle_invalid_bsr():
                 "asin": "A",
                 "site": "US",
                 "dt": "2024-01-02",
+                "sales": 6,
                 "price": 12,
                 "bsr": 100,
                 "rating": 4.6,
@@ -85,10 +87,19 @@ def test_standardize_and_build_labels_handle_invalid_bsr():
 
     standardized = run([raw])
     assert list(standardized["bsr_valid"]) == [False, True]
-    labels = build_labels(standardized)
+    standardized["bsr_rank"] = standardized["bsr"]
+    facts_df = standardized[["asin", "site"]].drop_duplicates().assign(category_id="generic")
+    result = build_labels(
+        standardized,
+        facts_df=facts_df,
+        windows=LabelWindows(observation_days=1, forecast_days=1),
+        thresholds=Thresholds(r=0.1, p=0.05, delta=10),
+    )
 
-    first_row = labels.iloc[0]
-    assert pd.isna(first_row["bsr"])
-    assert not first_row["bsr_valid"]
-    assert first_row["future_bsr"] == pytest.approx(100.0)
-    assert not first_row["bsr_improved"]
+    samples = result.samples.sort_values("t_ref").reset_index(drop=True)
+    assert len(samples) == 1
+    first_row = samples.iloc[0]
+    assert pd.isna(first_row["past_bsr_rank"])
+    assert first_row["future_bsr_rank"] == pytest.approx(100.0)
+    assert pd.isna(first_row["bsr_rank_improvement"])
+    assert first_row["y_bin"] == 0
