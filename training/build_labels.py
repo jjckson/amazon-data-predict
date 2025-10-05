@@ -286,18 +286,30 @@ def _derive_targets(
     enriched = samples.copy()
     enriched["y_reg"] = enriched["future_sales"].astype(float)
 
+    site_series = enriched.get("site")
+    if site_series is None:
+        site_labels = pd.Series("unknown_site", index=enriched.index, dtype="string")
+    else:
+        site_labels = site_series.fillna("unknown_site").astype("string")
+
     category_series = enriched.get("category_id")
-    site_fallback = enriched.get("site")
     if category_series is None:
-        category_series = site_fallback
-    category_labels = category_series.fillna("unknown_category").astype("string")
+        category_labels = pd.Series("unknown_category", index=enriched.index, dtype="string")
+    else:
+        category_labels = category_series.fillna("unknown_category").astype("string")
+
+    group_components: list[pd.Series] = [site_labels, category_labels]
 
     price_band_series = enriched.get("price_band")
     if price_band_series is not None and price_band_series.notna().any():
         price_labels = price_band_series.fillna("unknown_price_band").astype("string")
-        group_id = category_labels + "|" + price_labels
-    else:
-        group_id = category_labels
+        group_components.append(price_labels)
+
+    group_id = (
+        pd.concat(group_components, axis=1)
+        .astype("string")
+        .agg("|".join, axis=1)
+    )
     enriched["group_id"] = group_id
 
     enriched["y_rank"] = (
