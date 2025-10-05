@@ -114,9 +114,11 @@ class ScoredItem:
     dt: date
     category: Optional[str]
     explosive_score: float
+    lgbm_score: float
     rank_in_cat: Optional[int]
-    group_rank: Optional[int]
+    rank_in_group: Optional[int]
     reason: Dict[str, float]
+    group_id: Optional[str] = None
 
 
 @dataclass
@@ -124,6 +126,8 @@ class BatchScoreResponse:
     run_date: date
     model_version: str
     items: List[ScoredItem]
+    feature_snapshot_path: Optional[str] = None
+    score_artifacts: Dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_dataframe(
@@ -131,9 +135,20 @@ class BatchScoreResponse:
         frame: pd.DataFrame,
         run_date: date,
         model_version: str,
+        feature_snapshot_path: Optional[Any] = None,
+        score_artifacts: Optional[Dict[str, Any]] = None,
     ) -> "BatchScoreResponse":
+        feature_snapshot = str(feature_snapshot_path) if feature_snapshot_path is not None else None
+        serialized_artifacts = {key: str(value) for key, value in (score_artifacts or {}).items()}
+
         if frame.empty:
-            return cls(run_date=run_date, model_version=model_version, items=[])
+            return cls(
+                run_date=run_date,
+                model_version=model_version,
+                items=[],
+                feature_snapshot_path=feature_snapshot,
+                score_artifacts=serialized_artifacts,
+            )
 
         items: List[ScoredItem] = []
         for _, row in frame.iterrows():
@@ -151,12 +166,17 @@ class BatchScoreResponse:
                     reason = {}
 
             rank_in_cat = row.get("rank_in_cat")
-            group_rank = row.get("group_rank")
+            group_rank = row.get("rank_in_group", row.get("group_rank"))
             dt_value = row.get("dt")
             try:
                 parsed_dt = _ensure_date(dt_value)
             except Exception:  # pragma: no cover - defensive fallback
                 parsed_dt = run_date
+
+            raw_explosive = row.get("explosive_score")
+            raw_lgbm = row.get("lgbm_score")
+            explosive_score = float(raw_explosive if raw_explosive is not None else raw_lgbm)
+            lgbm_score = float(raw_lgbm if raw_lgbm is not None else explosive_score)
 
             items.append(
                 ScoredItem(
@@ -164,13 +184,21 @@ class BatchScoreResponse:
                     site=row.get("site"),
                     dt=parsed_dt,
                     category=row.get("category"),
-                    explosive_score=float(row.get("explosive_score")),
+                    explosive_score=explosive_score,
+                    lgbm_score=lgbm_score,
                     rank_in_cat=int(rank_in_cat) if _is_finite(rank_in_cat) else None,
-                    group_rank=int(group_rank) if _is_finite(group_rank) else None,
+                    rank_in_group=int(group_rank) if _is_finite(group_rank) else None,
                     reason=reason,
+                    group_id=row.get("group_id") if isinstance(row.get("group_id"), str) else None,
                 )
             )
-        return cls(run_date=run_date, model_version=model_version, items=items)
+        return cls(
+            run_date=run_date,
+            model_version=model_version,
+            items=items,
+            feature_snapshot_path=feature_snapshot,
+            score_artifacts=serialized_artifacts,
+        )
 
 
 def _is_finite(value: Any) -> bool:
