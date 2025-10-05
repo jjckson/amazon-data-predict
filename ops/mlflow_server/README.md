@@ -24,6 +24,10 @@ client -> ingress -> mlflow server -> backend database
 2. Apply environment-specific overrides by extending `config/settings.yaml` with an `mlflow` section or by providing a sibling `settings.<env>.yaml` that is merged at runtime by your orchestration scripts.
 3. Sync the same environment variables to the infrastructure defined in `ops/docker/` and `ops/k8s/` to ensure consistent credentials everywhere the MLflow client is used.
 
+> ℹ️ **Local fallback** – The `training/registry.py` CLI automatically falls back to `runs/registry.json`
+> when MLflow cannot be reached. Point `--registry-file` at a shared location (e.g., an NFS mount) if
+> you need a lightweight registry without running the full MLflow stack.
+
 ### Required Environment Variables
 
 The server honours the variables shown below (see `mlflow.env.example`):
