@@ -63,6 +63,14 @@ def sample_frames() -> dict[str, pd.DataFrame]:
             "confidence_score": [0.85] * len(dates),
             "revenue_rank": list(range(1, len(dates) + 1)),
             "quality_rank": list(range(1, len(dates) + 1)),
+            "ai_comment_summary": [
+                "Auto summary emphasizes conversion uplift" if i % 2 == 0 else None
+                for i in range(len(dates))
+            ],
+            "ai_keyword_cluster": [
+                "electronics accessories" if i % 2 == 0 else "home gadgets"
+                for i in range(len(dates))
+            ],
         }
     )
     category = pd.DataFrame(
@@ -106,6 +114,8 @@ def test_weekly_report_generation(tmp_path: Path, sample_frames: dict[str, pd.Da
     assert artifacts.excel_path.exists()
     assert artifacts.pdf_path.exists()
     assert len(artifacts.top_candidates) == len(sample_frames["top"])
+    assert artifacts.ai_comment_summaries is None
+    assert artifacts.ai_keyword_clusters is None
 
     s3_client = DummyS3Client()
     smtp_client = DummySMTPClient()
@@ -116,6 +126,33 @@ def test_weekly_report_generation(tmp_path: Path, sample_frames: dict[str, pd.Da
     )
     assert len(s3_client.calls) == 2
     assert len(smtp_client.sent_messages) == 1
+
+
+def test_weekly_report_ai_sections(tmp_path: Path, sample_frames: dict[str, pd.DataFrame]) -> None:
+    schedule = ScheduleConfig(weekday=0, run_time=dt.time(hour=0, minute=0))
+    config = ReportConfig(
+        output_dir=tmp_path,
+        schedule=schedule,
+        ai_enabled=True,
+    )
+    runner = DummyQueryRunner(sample_frames)
+    generator = WeeklyReportGenerator(runner, config)
+    artifacts = generator.generate_report(report_date=dt.date(2023, 1, 7))
+    assert artifacts.ai_comment_summaries is not None
+    assert artifacts.ai_keyword_clusters is not None
+    assert config.ai_placeholder_text in artifacts.ai_comment_summaries.iloc[1].tolist()
+
+
+def test_weekly_report_ai_section_fallback(tmp_path: Path, sample_frames: dict[str, pd.DataFrame]) -> None:
+    frames_without_ai = sample_frames.copy()
+    frames_without_ai["top"] = frames_without_ai["top"].drop(columns=["ai_comment_summary", "ai_keyword_cluster"])
+    schedule = ScheduleConfig(weekday=0, run_time=dt.time(hour=0, minute=0))
+    config = ReportConfig(output_dir=tmp_path, schedule=schedule, ai_enabled=True)
+    runner = DummyQueryRunner(frames_without_ai)
+    generator = WeeklyReportGenerator(runner, config)
+    artifacts = generator.generate_report(report_date=dt.date(2023, 1, 7))
+    assert artifacts.ai_comment_summaries is None
+    assert artifacts.ai_keyword_clusters is None
 
 
 def test_schedule_weekly_report(tmp_path: Path, sample_frames: dict[str, pd.DataFrame]) -> None:
