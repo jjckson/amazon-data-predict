@@ -108,6 +108,39 @@ class BatchScoreRequest:
 
 
 @dataclass
+class SummaryRequestSchema:
+    """Request payload for invoking the AI summarisation endpoint."""
+
+    text: str
+    max_sentences: Optional[int] = None
+    language: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        self.text = self.text.strip()
+        if not self.text:
+            raise ValueError("text must not be empty")
+        if self.max_sentences is not None and self.max_sentences < 1:
+            raise ValueError("max_sentences must be positive when provided")
+
+
+@dataclass
+class KeywordClusterRequestSchema:
+    """Request payload for keyword clustering via an AI provider."""
+
+    keywords: List[str]
+    language: Optional[str] = None
+    top_k: Optional[int] = None
+
+    def __post_init__(self) -> None:
+        cleaned_keywords = [keyword.strip() for keyword in self.keywords if keyword and keyword.strip()]
+        if not cleaned_keywords:
+            raise ValueError("keywords must contain at least one non-empty value")
+        self.keywords = cleaned_keywords
+        if self.top_k is not None and self.top_k < 1:
+            raise ValueError("top_k must be positive when provided")
+
+
+@dataclass
 class ScoredItem:
     asin: str
     site: str

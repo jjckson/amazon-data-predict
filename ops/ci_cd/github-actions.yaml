@@ -47,6 +47,9 @@ jobs:
         run: |
           cat config/secrets.example.env >> $GITHUB_ENV
           echo "SETTINGS_PATH=config/settings.yaml" >> $GITHUB_ENV
+          echo "AI_PROVIDER=mock" >> $GITHUB_ENV
+          echo "AI_API_KEY=<SET_IN_SECRETS>" >> $GITHUB_ENV
+          echo "AI_API_BASE_URL=" >> $GITHUB_ENV
       - name: Run tests
         run: pytest --cov=.
 
