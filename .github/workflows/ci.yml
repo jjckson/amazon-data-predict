@@ -17,16 +17,36 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
           cache: 'pip'
 
       - name: Install dependencies
-        run: 
+        run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-      - name: Install dependencies
-        run: 
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          python -m pip install pytest
+          if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; fi
+          if [ -f pyproject.toml ] || [ -f setup.cfg ] || [ -f setup.py ]; then python -m pip install -e .; fi
+
+      - name: Show Python & PyTest versions
+        run: |
+          which python
+          python -V
+          python -c "import sys; print('py exec:', sys.executable)"
+          python -m pytest --version
+
+      - name: Check dataclass(slots) support
+        run: |
+          python - <<'PY'
+          import sys
+          from dataclasses import dataclass
+          try:
+              @dataclass(slots=True)
+              class X: a:int=1
+              print("dataclass(slots) OK on", sys.version)
+          except TypeError as e:
+              print("dataclass(slots) FAILED on", sys.version, ":", e)
+              raise SystemExit(1)
+          PY
+
       - name: Run tests
-        run: pytest -q
+        run: python -m pytest -q
