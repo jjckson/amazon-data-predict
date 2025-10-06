@@ -62,6 +62,15 @@ Each script exposes a `run` helper that can be reused inside orchestrators and a
 - `utils/rate_limiter.py` and `utils/backoff.py` ensure connectors respect upstream quotas and recover from 429/5xx responses.
 - `utils/validators.py` delivers daily coverage/anomaly checks; incorporate into alerting webhooks.
 
+## AI Components & Governance
+
+- **Enabling AI features:**
+  1. Populate `config/ai_settings.yaml` (or create from `config/ai_settings.example.yaml`) with provider keys, summarisation limits, and safety filters.
+  2. Enable the summarisation/cluster jobs in the orchestrator by toggling the `enable_ai_features` flag in `pipelines/settings.py` and redeploying the scheduler (cron/Airflow).
+  3. Provision observability dashboards that track model latency, confidence scores, and rejection counts prior to broad release.
+- **Human review checklist:** Ensure reviewers have access to the AI output queue, apply the documented acceptance rubric (coverage, factuality, tone), record approvals in the governance tracker, and escalate unresolved items to the domain lead within 24 hours.
+- **Safety & compliance:** Confirm content filters align with policy requirements, store AI prompts/responses per retention rules, redact personal data before processing, and document periodic audits in the model registry governance log.
+
 ## Exports
 
 The scoring pipeline materialises data into `score_baseline_daily`. Use the views defined in

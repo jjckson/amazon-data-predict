@@ -26,6 +26,11 @@ validation report, and stakeholder review.
 - **Policies:** Reference applicable governance, retention, and privacy requirements.
 - **Review cadence:** State audit frequency and links to the latest review artefacts.
 
+## AI 增强能力
+- **摘要/聚类上线流程：** 记录需求立项、离线评估、灰度验证、正式发布的审批里程碑，明确涉及的数据资产和模型版本。
+- **人工审核步骤：** 描述标注或运营团队在摘要生成、主题聚类结果发布前的抽检比例、审核准则、双人复核与升级路径。
+- **失败兜底策略：** 定义模型置信度阈值、触发退回到规则或人工处理的条件、以及面向用户或下游系统的降级通知流程。
+
 ## Change History
 | Release | Date | Summary | Owner |
 | --- | --- | --- | --- |
