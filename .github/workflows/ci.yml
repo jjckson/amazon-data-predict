@@ -23,29 +23,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; fi
-          if [ -f pyproject.toml ] || [ -f setup.cfg ] || [ -f setup.py ]; then python -m pip install -e .; fi
+          pip install -r requirements.txt
 
       - name: Show Python & PyTest versions
         run: |
           which python
           python -V
-          python -c "import sys; print('py exec:', sys.executable)"
-          python -m pytest --version
-
-      - name: Check dataclass(slots) support
-        run: |
-          python - <<'PY'
-          import sys
-          from dataclasses import dataclass
-          try:
-              @dataclass(slots=True)
-              class X: a:int=1
-              print("dataclass(slots) OK on", sys.version)
-          except TypeError as e:
-              print("dataclass(slots) FAILED on", sys.version, ":", e)
-              raise SystemExit(1)
-          PY
+          pytest --version
 
       - name: Run tests
         run: python -m pytest -q
