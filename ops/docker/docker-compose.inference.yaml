@@ -9,6 +9,9 @@ services:
     environment:
       - SETTINGS_PATH=/app/config/settings.yaml
       - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-http://mlflow:5000}
+      - AI_PROVIDER=${AI_PROVIDER:-}
+      - AI_API_KEY=${AI_API_KEY:-}
+      - AI_API_BASE_URL=${AI_API_BASE_URL:-}
     volumes:
       - ../storage/data:/app/storage/data
       - ../storage/artifacts:/app/storage/artifacts
