@@ -80,6 +80,11 @@ exports:
       path: "exports/top_candidates"
     - name: "vw_features_latest"
       path: "exports/features_latest"
+ai:
+  enabled: false
+  comment_summary_table: ""
+  keyword_cluster_table: ""
+  export_path: ""
 logging:
   level: "INFO"
   json: true

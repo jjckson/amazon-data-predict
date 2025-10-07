@@ -1,8 +1,8 @@
 -- Canonical Business Intelligence views for weekly dashboards.
 --
--- vw_top_candidates_daily:
 --   Exposes the daily top predicted ASINs alongside confidence and velocity
 --   metrics used by merchandising and marketing stakeholders.
+-- TODO(manual): BI 图表配置由运营确认。
 -- vw_features_latest:
 --   Provides the most recent feature vector for each ASIN/site pair.
 -- pred_rank_daily:
@@ -61,11 +61,21 @@ SELECT
     c.avg_category_revenue,
     c.avg_category_units,
     (ranked.predicted_revenue - c.avg_category_revenue) AS revenue_vs_category,
-    (ranked.predicted_units - c.avg_category_units) AS units_vs_category
+    (ranked.predicted_units - c.avg_category_units) AS units_vs_category,
+    acs.summary_text AS ai_comment_summary,
+    akc.cluster_label AS ai_keyword_cluster
 FROM ranked
 LEFT JOIN category_snapshot_daily AS c
     ON c.snapshot_date = ranked.snapshot_date
     AND c.category = ranked.category
+LEFT JOIN ai_comment_summaries AS acs
+    ON acs.snapshot_date = ranked.snapshot_date
+    AND acs.asin = ranked.asin
+    AND acs.site = ranked.site
+LEFT JOIN ai_keyword_clusters AS akc
+    ON akc.snapshot_date = ranked.snapshot_date
+    AND akc.asin = ranked.asin
+    AND akc.site = ranked.site
 WHERE ranked.revenue_rank <= 500;
 
 DROP VIEW IF EXISTS vw_features_latest;
