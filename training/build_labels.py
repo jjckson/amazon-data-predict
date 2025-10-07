@@ -63,6 +63,33 @@ class BuildLabelsResult:
     train_samples_reg: pd.DataFrame
     reports: dict[str, pd.DataFrame] = field(default_factory=dict)
 
+    def __getattr__(self, name: str) -> Any:
+        """Proxy DataFrame-like attribute access to :attr:`samples`.
+
+        ``build_labels`` historically returned a ``pd.DataFrame`` and some
+        consumers—including tests—still expect dataframe accessors such as
+        ``iloc`` to be available on the result.  Delegating unknown attribute
+        lookups keeps backwards compatibility while we expose the richer
+        structured output.
+        """
+
+        try:
+            return getattr(self.samples, name)
+        except AttributeError as exc:  # pragma: no cover - defensive branch
+            raise AttributeError(
+                f"{type(self).__name__!r} object has no attribute {name!r}"
+            ) from exc
+
+    def __len__(self) -> int:
+        """Allow ``len(result)`` to reflect the underlying samples."""
+
+        return len(self.samples)
+
+    def __iter__(self):
+        """Iterate over the sample columns like a DataFrame."""
+
+        return iter(self.samples)
+
 
 def _prepare_frame(frame: pd.DataFrame) -> pd.DataFrame:
     """Normalise common columns such as ``dt`` and ensure sorting."""
