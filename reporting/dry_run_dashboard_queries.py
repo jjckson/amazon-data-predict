@@ -42,6 +42,20 @@ def _create_sample_tables(connection: sqlite3.Connection) -> None:
             feature_value REAL,
             snapshot_ts TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS ai_comment_summaries (
+            snapshot_date TEXT,
+            asin TEXT,
+            site TEXT,
+            summary_text TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS ai_keyword_clusters (
+            snapshot_date TEXT,
+            asin TEXT,
+            site TEXT,
+            cluster_label TEXT
+        );
         """
     )
 
@@ -103,6 +117,35 @@ def _create_sample_tables(connection: sqlite3.Connection) -> None:
     connection.executemany(
         "INSERT INTO feature_history VALUES (?, ?, ?, ?, ?)",
         feature_rows,
+    )
+
+    comment_rows = []
+    keyword_rows = []
+    for offset in range(0, 7):
+        date_value = today - dt.timedelta(days=offset)
+        comment_rows.append(
+            (
+                date_value.isoformat(),
+                "ASIN1",
+                "US",
+                "Great attachment quality, trending upward",
+            )
+        )
+        keyword_rows.append(
+            (
+                date_value.isoformat(),
+                "ASIN1",
+                "US",
+                "travel accessories",
+            )
+        )
+    connection.executemany(
+        "INSERT INTO ai_comment_summaries VALUES (?, ?, ?, ?)",
+        comment_rows,
+    )
+    connection.executemany(
+        "INSERT INTO ai_keyword_clusters VALUES (?, ?, ?, ?)",
+        keyword_rows,
     )
 
 
