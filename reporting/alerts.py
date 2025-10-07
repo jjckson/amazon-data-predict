@@ -1,7 +1,7 @@
 """Operational alerting for reporting pipelines."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import field
 from email.message import EmailMessage
 from typing import Callable, Iterable, Protocol, Sequence
 
@@ -9,6 +9,7 @@ import pandas as pd
 import requests
 
 from utils.backoff import RetryPolicy, retryable, sleep_with_backoff
+from utils.dataclass_compat import dataclass
 from utils.logging import get_logger
 
 

@@ -55,7 +55,15 @@ class SplitConfig:
 
 @dataclass
 class BuildLabelsResult:
-    """Structured output of the label construction pipeline."""
+    """Structured output of the label construction pipeline.
+
+    ``build_labels`` originally returned a single ``pd.DataFrame``.  The
+    dataclass wraps the richer structured output introduced later while still
+    presenting a DataFrame-like surface for legacy consumers.  This keeps
+    backwards compatibility for call sites that expect to work with the result
+    as if it were a pandas ``DataFrame`` (attribute access, column selection,
+    ``len``/iteration, etc.).
+    """
 
     samples: pd.DataFrame
     train_samples_bin: pd.DataFrame

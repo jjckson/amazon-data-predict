@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
-from dataclasses import dataclass, field
+from dataclasses import field
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Callable, Mapping, Protocol, Sequence
@@ -14,6 +14,7 @@ import pandas as pd
 
 from utils.backoff import RetryPolicy, sleep_with_backoff
 from utils.logging import get_logger
+from utils.dataclass_compat import dataclass
 
 
 LOGGER = get_logger(__name__)
