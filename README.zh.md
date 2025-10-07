@@ -24,7 +24,9 @@ tests/                  # connectors 与 pipelines 的单测
    ```
 2. **配置环境**
    - 复制 `config/secrets.example.env` 为 `.env` 并填写令牌/密码。
+     注：模板中已对 Unified Data、数据库、Keepa、SP-API 以及新增的 Qwen/Claude 模型服务给出申请地址，可按注释提示获取密钥。
    - 根据环境、限流、时间窗口与存储目标调整 `config/settings.yaml`。
+     - `ai.provider` 字段支持 `openai`、`qwen`、`claude` 等选项，可在 `ai.providers` 子项中自定义各厂商所用的环境变量名与连接参数。
 3. **运行测试**
    ```bash
    pytest

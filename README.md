@@ -101,12 +101,14 @@ tests/                  # connectors、pipelines 等单元测试
    ```bash
    cp config/secrets.example.env .env
    ```
+   - `.env` 模板对 Unified Data、数据库、Keepa、SP-API 以及新增的 Qwen/Claude LLM 提供商给出了申请入口，可按照注释中的链接申请访问令牌。
    - `AMAZON_PARTNER_TAG`、`AMAZON_ACCESS_KEY`、`AMAZON_SECRET_KEY`：Amazon API 凭证。
    - `DATABASE_URL`：PostgreSQL 连接串（示例：`postgresql://user:pass@localhost:5432/asin`）。
 2. 核对 `config/settings.yaml`：
    - `ingest.rate_limit` 控制 API 调用频率。
    - `storage.raw_bucket`/`warehouse.schema` 指定数据落地位置。
    - `ai.enabled` 默认为 `false`，如需启用 AI 摘要、关键词功能请在上线前人工置为 `true` 并配置对应表名/路径。
+   - `ai.provider` 支持 `openai`、`qwen`、`claude` 等选项；可在 `ai.providers` 子项中调整不同厂商使用的环境变量命名或接入参数。
 3. 若需自定义标签阈值，请复制示例：
    ```bash
    cp config/labeling.yaml.example config/labeling.yaml
