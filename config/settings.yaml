@@ -85,6 +85,20 @@ ai:
   comment_summary_table: ""
   keyword_cluster_table: ""
   export_path: ""
+  provider: "openai"
+  providers:
+    openai:
+      label: "OpenAI"
+      api_key_env: "OPENAI_API_KEY"
+      api_base_env: "OPENAI_API_BASE"
+    qwen:
+      label: "Qwen (DashScope)"
+      api_key_env: "QWEN_API_KEY"
+      api_base_env: "QWEN_API_BASE_URL"
+    claude:
+      label: "Claude (Anthropic)"
+      api_key_env: "CLAUDE_API_KEY"
+      api_base_env: "CLAUDE_API_BASE_URL"
 logging:
   level: "INFO"
   json: true
