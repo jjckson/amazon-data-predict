@@ -16,7 +16,7 @@ tests/                  # connectors 与 pipelines 的单元测试
 
 ## 快速开始
 
-1. **安装依赖**
+1. **Install dependencies** (requires Python 3.11 or newer)
    ```bash
    python -m venv .venv
    source .venv/bin/activate
@@ -58,7 +58,16 @@ tests/                  # connectors 与 pipelines 的单元测试
 - `utils/rate_limiter.py`、`utils/backoff.py` 确保 connectors 遵守限流并处理 429/5xx。
 - `utils/validators.py` 用于每日覆盖率/异常检测，可挂接到告警通道。
 
-## 数据导出
+## AI Components & Governance
+
+- **Enabling AI features:**
+  1. Populate `config/ai_settings.yaml` (or create from `config/ai_settings.example.yaml`) with provider keys, summarisation limits, and safety filters.
+  2. Enable the summarisation/cluster jobs in the orchestrator by toggling the `enable_ai_features` flag in `pipelines/settings.py` and redeploying the scheduler (cron/Airflow).
+  3. Provision observability dashboards that track model latency, confidence scores, and rejection counts prior to broad release.
+- **Human review checklist:** Ensure reviewers have access to the AI output queue, apply the documented acceptance rubric (coverage, factuality, tone), record approvals in the governance tracker, and escalate unresolved items to the domain lead within 24 hours.
+- **Safety & compliance:** Confirm content filters align with policy requirements, store AI prompts/responses per retention rules, redact personal data before processing, and document periodic audits in the model registry governance log.
+
+## Exports
 
 评分管线会将结果写入 `score_baseline_daily`，可配合 `storage/feature_store_schema.sql` 中的视图供 BI 仪表盘或 CSV 导出（如 `exports/top_candidates_YYYYMMDD.csv`）。
 
