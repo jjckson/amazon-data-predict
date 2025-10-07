@@ -71,61 +71,32 @@ class BuildLabelsResult:
     train_samples_reg: pd.DataFrame
     reports: dict[str, pd.DataFrame] = field(default_factory=dict)
 
-    # -- pandas interoperability -------------------------------------------------
-    def _delegate(self) -> pd.DataFrame:
-        """Internal helper returning the DataFrame used for delegation."""
-
-        return self.samples
-
     def __getattr__(self, name: str) -> Any:
-        """Proxy attribute access to :attr:`samples` for DataFrame helpers."""
+        """Proxy DataFrame-like attribute access to :attr:`samples`.
+
+        ``build_labels`` historically returned a ``pd.DataFrame`` and some
+        consumers—including tests—still expect dataframe accessors such as
+        ``iloc`` to be available on the result.  Delegating unknown attribute
+        lookups keeps backwards compatibility while we expose the richer
+        structured output.
+        """
 
         try:
-            return getattr(self._delegate(), name)
+            return getattr(self.samples, name)
         except AttributeError as exc:  # pragma: no cover - defensive branch
             raise AttributeError(
                 f"{type(self).__name__!r} object has no attribute {name!r}"
             ) from exc
 
     def __len__(self) -> int:
-        """Return the number of rows in the underlying samples."""
+        """Allow ``len(result)`` to reflect the underlying samples."""
 
-        return len(self._delegate())
+        return len(self.samples)
 
     def __iter__(self):
-        """Iterate over the column labels like a DataFrame."""
+        """Iterate over the sample columns like a DataFrame."""
 
-        return iter(self._delegate())
-
-    def __getitem__(self, key: Any) -> Any:
-        """Allow column/item access via ``result[key]`` semantics."""
-
-        return self._delegate().__getitem__(key)
-
-    def __setitem__(self, key: Any, value: Any) -> None:
-        """Mutate the samples DataFrame when treating the result like one."""
-
-        self._delegate().__setitem__(key, value)
-
-    def __contains__(self, key: object) -> bool:  # pragma: no cover - passthrough
-        return key in self._delegate()
-
-    def keys(self):  # pragma: no cover - passthrough
-        return self._delegate().keys()
-
-    def items(self):  # pragma: no cover - passthrough
-        return self._delegate().items()
-
-    def to_pandas(self) -> pd.DataFrame:
-        """Return a copy of the samples ``DataFrame`` for clarity."""
-
-        return self._delegate().copy()
-
-    def __repr__(self) -> str:  # pragma: no cover - formatting helper
-        return f"BuildLabelsResult(samples={repr(self._delegate())}, ... )"
-
-    def __bool__(self) -> bool:  # pragma: no cover - mimic DataFrame semantics
-        raise ValueError("The truth value of a BuildLabelsResult is ambiguous")
+        return iter(self.samples)
 
 
 def _prepare_frame(frame: pd.DataFrame) -> pd.DataFrame:
