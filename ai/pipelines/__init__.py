@@ -1,3 +1,6 @@
 """Pipeline primitives for AI workflows."""
 
-__all__ = []
+from .comment_summarizer import generate_comment_summaries
+from .keyword_cluster import cluster_keywords
+
+__all__ = ["generate_comment_summaries", "cluster_keywords"]
