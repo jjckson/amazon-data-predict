@@ -6,11 +6,11 @@ import dataclasses
 import json
 import logging
 import os
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-import sys
 from typing import Any, Dict, Iterable, List, Optional
+
+from utils.dataclass_compat import dataclass
 
 LOGGER = logging.getLogger(__name__)
 
@@ -24,8 +24,6 @@ __all__ = [
 ]
 
 field = dataclasses.field
-
-_SLOTS_SUPPORTED = sys.version_info >= (3, 10)
 
 DEFAULT_REGISTRY_FILE = Path("runs/registry.json")
 _DEFAULT_STAGE = "None"
@@ -41,36 +39,6 @@ _STAGE_ALIASES = {
     "archive": "Archived",
     "archived": "Archived",
 }
-
-
-def _call_dataclass(args: tuple[Any, ...], kwargs: Dict[str, Any]) -> Any:
-    return dataclasses.dataclass(*args, **kwargs)
-
-
-def dataclass(*args: Any, **kwargs: Any) -> Any:
-    """A thin wrapper around :func:`dataclasses.dataclass`.
-
-    The wrapper removes the ``slots`` keyword when the standard library
-    implementation does not support it (Python < 3.10). It also tolerates
-    monkeypatched versions that raise ``TypeError`` when ``slots`` is provided.
-    """
-
-    if "slots" not in kwargs:
-        return _call_dataclass(args, kwargs)
-
-    call_kwargs = dict(kwargs)
-
-    if _SLOTS_SUPPORTED:
-        try:
-            return _call_dataclass(args, call_kwargs)
-        except TypeError as exc:
-            if "slots" not in str(exc):
-                raise
-
-    call_kwargs.pop("slots", None)
-    return _call_dataclass(args, call_kwargs)
-
-
 @dataclass(frozen=True, slots=True)
 class ModelVersion:
     """Represents a model version stored in the registry."""

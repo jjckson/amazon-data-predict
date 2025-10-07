@@ -55,13 +55,77 @@ class SplitConfig:
 
 @dataclass
 class BuildLabelsResult:
-    """Structured output of the label construction pipeline."""
+    """Structured output of the label construction pipeline.
+
+    ``build_labels`` originally returned a single ``pd.DataFrame``.  The
+    dataclass wraps the richer structured output introduced later while still
+    presenting a DataFrame-like surface for legacy consumers.  This keeps
+    backwards compatibility for call sites that expect to work with the result
+    as if it were a pandas ``DataFrame`` (attribute access, column selection,
+    ``len``/iteration, etc.).
+    """
 
     samples: pd.DataFrame
     train_samples_bin: pd.DataFrame
     train_samples_rank: pd.DataFrame
     train_samples_reg: pd.DataFrame
     reports: dict[str, pd.DataFrame] = field(default_factory=dict)
+
+    # -- pandas interoperability -------------------------------------------------
+    def _delegate(self) -> pd.DataFrame:
+        """Internal helper returning the DataFrame used for delegation."""
+
+        return self.samples
+
+    def __getattr__(self, name: str) -> Any:
+        """Proxy attribute access to :attr:`samples` for DataFrame helpers."""
+
+        try:
+            return getattr(self._delegate(), name)
+        except AttributeError as exc:  # pragma: no cover - defensive branch
+            raise AttributeError(
+                f"{type(self).__name__!r} object has no attribute {name!r}"
+            ) from exc
+
+    def __len__(self) -> int:
+        """Return the number of rows in the underlying samples."""
+
+        return len(self._delegate())
+
+    def __iter__(self):
+        """Iterate over the column labels like a DataFrame."""
+
+        return iter(self._delegate())
+
+    def __getitem__(self, key: Any) -> Any:
+        """Allow column/item access via ``result[key]`` semantics."""
+
+        return self._delegate().__getitem__(key)
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        """Mutate the samples DataFrame when treating the result like one."""
+
+        self._delegate().__setitem__(key, value)
+
+    def __contains__(self, key: object) -> bool:  # pragma: no cover - passthrough
+        return key in self._delegate()
+
+    def keys(self):  # pragma: no cover - passthrough
+        return self._delegate().keys()
+
+    def items(self):  # pragma: no cover - passthrough
+        return self._delegate().items()
+
+    def to_pandas(self) -> pd.DataFrame:
+        """Return a copy of the samples ``DataFrame`` for clarity."""
+
+        return self._delegate().copy()
+
+    def __repr__(self) -> str:  # pragma: no cover - formatting helper
+        return f"BuildLabelsResult(samples={repr(self._delegate())}, ... )"
+
+    def __bool__(self) -> bool:  # pragma: no cover - mimic DataFrame semantics
+        raise ValueError("The truth value of a BuildLabelsResult is ambiguous")
 
 
 def _prepare_frame(frame: pd.DataFrame) -> pd.DataFrame:
