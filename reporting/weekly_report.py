@@ -277,6 +277,14 @@ class ReportConfig:
             max_delay_ms=4000,
         )
     )
+    ai_enabled: bool = False
+    ai_summary_sheet_name: str = "AI 摘要"
+    ai_keywords_sheet_name: str = "AI 关键词"
+    ai_summary_column_label: str = "AI 摘要"
+    ai_keywords_column_label: str = "AI 关键词"
+    ai_summary_pdf_title: str = "AI Comment Summaries"
+    ai_keywords_pdf_title: str = "AI Keyword Clusters"
+    ai_placeholder_text: str = "待运营审核"
 
 
 @dataclass(slots=True)
@@ -289,6 +297,8 @@ class WeeklyReportArtifacts:
     top_candidates: pd.DataFrame
     category_deltas: pd.DataFrame
     anomalies: pd.DataFrame
+    ai_comment_summaries: pd.DataFrame | None = None
+    ai_keyword_clusters: pd.DataFrame | None = None
 
 
 class WeeklyReportGenerator:
@@ -402,12 +412,45 @@ class WeeklyReportGenerator:
         result["snapshot_date"] = pd.to_datetime(result["snapshot_date"]).dt.date
         return result
 
+    def _prepare_ai_sections(
+        self, top_candidates: pd.DataFrame
+    ) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
+        if not self._config.ai_enabled:
+            return None, None
+
+        required_columns = {"snapshot_date", "asin", "site", "ai_comment_summary", "ai_keyword_cluster"}
+        missing_columns = required_columns - set(top_candidates.columns)
+        if missing_columns:
+            raise KeyError(f"Missing AI columns in top candidates frame: {sorted(missing_columns)}")
+
+        def _format_section(source_column: str, column_label: str) -> pd.DataFrame:
+            frame = top_candidates[["snapshot_date", "asin", "site", source_column]].copy()
+            frame.rename(columns={source_column: column_label}, inplace=True)
+            if frame.empty:
+                return pd.DataFrame({column_label: [self._config.ai_placeholder_text]})
+            frame[column_label] = frame[column_label].fillna(self._config.ai_placeholder_text)
+            frame["snapshot_date"] = pd.to_datetime(frame["snapshot_date"]).dt.date
+            frame = frame.drop_duplicates(ignore_index=True)
+            return frame
+
+        summaries = _format_section("ai_comment_summary", self._config.ai_summary_column_label)
+        keywords = _format_section("ai_keyword_cluster", self._config.ai_keywords_column_label)
+
+        if summaries.empty:
+            summaries = pd.DataFrame({self._config.ai_summary_column_label: [self._config.ai_placeholder_text]})
+        if keywords.empty:
+            keywords = pd.DataFrame({self._config.ai_keywords_column_label: [self._config.ai_placeholder_text]})
+
+        return summaries, keywords
+
     def _build_excel_report(
         self,
         report_date: dt.date,
         top_candidates: pd.DataFrame,
         category_deltas: pd.DataFrame,
         anomalies: pd.DataFrame,
+        ai_comment_summaries: pd.DataFrame | None,
+        ai_keyword_clusters: pd.DataFrame | None,
     ) -> Path:
         file_path = self._config.output_dir / f"weekly_report_{report_date.isoformat()}.xlsx"
         LOGGER.debug("Writing Excel report to %s", file_path)
@@ -416,6 +459,10 @@ class WeeklyReportGenerator:
             "Category Deltas": category_deltas,
             "Anomalies": anomalies,
         }
+        if ai_comment_summaries is not None:
+            sheets[self._config.ai_summary_sheet_name] = ai_comment_summaries
+        if ai_keyword_clusters is not None:
+            sheets[self._config.ai_keywords_sheet_name] = ai_keyword_clusters
         builder = SimpleXLSXBuilder()
         builder.write(file_path, sheets)
         return file_path
@@ -426,6 +473,8 @@ class WeeklyReportGenerator:
         top_candidates: pd.DataFrame,
         category_deltas: pd.DataFrame,
         anomalies: pd.DataFrame,
+        ai_comment_summaries: pd.DataFrame | None,
+        ai_keyword_clusters: pd.DataFrame | None,
     ) -> Path:
         file_path = self._config.output_dir / f"weekly_report_{report_date.isoformat()}.pdf"
         LOGGER.debug("Writing PDF report to %s", file_path)
@@ -433,6 +482,10 @@ class WeeklyReportGenerator:
         pdf.add_table("Top 100 Candidates", top_candidates)
         pdf.add_table("Category Deltas", category_deltas)
         pdf.add_table("Anomalies", anomalies)
+        if ai_comment_summaries is not None:
+            pdf.add_table(self._config.ai_summary_pdf_title, ai_comment_summaries)
+        if ai_keyword_clusters is not None:
+            pdf.add_table(self._config.ai_keywords_pdf_title, ai_keyword_clusters)
         pdf.write(file_path)
         return file_path
 
@@ -442,8 +495,31 @@ class WeeklyReportGenerator:
         top_candidates = self._fetch_top_candidates(report_date)
         category_deltas = self._fetch_category_deltas(report_date)
         anomalies = self._fetch_anomalies(report_date)
-        excel_path = self._build_excel_report(report_date, top_candidates, category_deltas, anomalies)
-        pdf_path = self._build_pdf_report(report_date, top_candidates, category_deltas, anomalies)
+        ai_comment_summaries: pd.DataFrame | None = None
+        ai_keyword_clusters: pd.DataFrame | None = None
+        if self._config.ai_enabled:
+            try:
+                ai_comment_summaries, ai_keyword_clusters = self._prepare_ai_sections(top_candidates)
+            except Exception:  # noqa: BLE001
+                LOGGER.exception("Failed to prepare AI sections; continuing with legacy report output")
+                ai_comment_summaries = None
+                ai_keyword_clusters = None
+        excel_path = self._build_excel_report(
+            report_date,
+            top_candidates,
+            category_deltas,
+            anomalies,
+            ai_comment_summaries,
+            ai_keyword_clusters,
+        )
+        pdf_path = self._build_pdf_report(
+            report_date,
+            top_candidates,
+            category_deltas,
+            anomalies,
+            ai_comment_summaries,
+            ai_keyword_clusters,
+        )
         artifacts = WeeklyReportArtifacts(
             report_date=report_date,
             excel_path=excel_path,
@@ -451,6 +527,8 @@ class WeeklyReportGenerator:
             top_candidates=top_candidates,
             category_deltas=category_deltas,
             anomalies=anomalies,
+            ai_comment_summaries=ai_comment_summaries,
+            ai_keyword_clusters=ai_keyword_clusters,
         )
         LOGGER.info(
             "Report generation complete for %s (Excel: %s, PDF: %s)",
