@@ -19,7 +19,7 @@ tests/                  # Unit tests for connectors + pipelines
 
 ## Getting Started
 
-1. **Install dependencies**
+1. **Install dependencies** (requires Python 3.11 or newer)
    ```bash
    python -m venv .venv
    source .venv/bin/activate

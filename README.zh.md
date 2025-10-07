@@ -16,7 +16,7 @@ tests/                  # connectors 与 pipelines 的单测
 
 ## 快速开始
 
-1. **安装依赖**
+1. **安装依赖**（需要 Python 3.11 及以上版本）
    ```bash
    python -m venv .venv
    source .venv/bin/activate
