@@ -19,6 +19,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     },
     "rate_limits": {
         "unified_api": {"qpm": 200, "burst": 200, "timeout_sec": 10},
+        "taapi": {"qpm": 120, "burst": 120, "timeout_sec": 10},
     },
     "features": {"rolling": [7, 14, 30]},
     "scoring": {

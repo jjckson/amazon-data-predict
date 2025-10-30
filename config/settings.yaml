@@ -30,6 +30,10 @@ rate_limits:
     qpm: 30
     burst: 30
     timeout_sec: 10
+  taapi:
+    qpm: 120
+    burst: 120
+    timeout_sec: 10
 retry_policy:
   max_attempts: 5
   base_delay_ms: 500

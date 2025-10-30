@@ -6,7 +6,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from ai.models import EmbeddingRequest, EmbeddingResponse, GenerationRequest, GenerationResponse
-from ai.pipelines import cluster_keywords, generate_comment_summaries
+from ai.pipelines import build_trading_prompt, cluster_keywords, generate_comment_summaries
 from ai.clients.base import EmbeddingClient, LLMClient
 
 
@@ -120,3 +120,70 @@ def test_cluster_keywords(tmp_path: Path) -> None:
 
     expected_dir = tmp_path / "20230207" / "ai"
     assert output_path.parent == expected_dir
+
+
+def test_build_trading_prompt() -> None:
+    system_state = {"minutes_since_start": 42, "current_time": "2024-04-01T12:00:00Z", "invocation_count": 5}
+    market_state = [
+        {
+            "symbol": "BTC",
+            "current_price": 114775.5,
+            "current_ema20": 114457.686,
+            "current_macd": 53.823,
+            "current_rsi_7": 86.769,
+            "open_interest_latest": 1234.0,
+            "open_interest_avg": 987.0,
+            "funding_rate": 0.0005,
+            "short_term": {
+                "interval": "5min",
+                "mid_prices": [114339.5, 114500.0],
+                "ema_series_20": [114329.3, 114480.5],
+                "macd_series": [-60.9, -12.1],
+                "rsi_series_7": [61.9, 65.2],
+                "rsi_series_14": [51.1, 54.0],
+            },
+            "long_term": {
+                "interval": "4h",
+                "ema_20_4h": 113453.764,
+                "ema_50_4h": 112031.947,
+                "atr_3_4h": 319.999,
+                "atr_14_4h": 523.419,
+                "current_volume": 8.146,
+                "avg_volume": 4618.058,
+                "macd_series_4h": [1082.2, 950.1],
+                "rsi_series_14_4h": [72.327, 70.1],
+            },
+        }
+    ]
+    account_info = {
+        "total_return_percent": 12.3,
+        "available_cash": 1000.0,
+        "account_value": 12345.6,
+        "positions": [
+            {
+                "symbol": "BTC",
+                "quantity": 0.5,
+                "entry_price": 100000.0,
+                "current_price": 114775.5,
+                "unrealized_pnl": 7387.75,
+                "leverage": 3,
+                "exit_plan": {
+                    "profit_target": 120000.0,
+                    "stop_loss": 95000.0,
+                    "invalidation_condition": "Breaks below 90k",
+                },
+                "confidence": "high",
+                "risk_usd": 500.0,
+                "notional_usd": 57387.75,
+            }
+        ],
+    }
+    performance = {"sharpe_ratio": 1.23}
+
+    prompt = build_trading_prompt(system_state, market_state, account_info, performance_metrics=performance)
+
+    assert "🧭 SYSTEM STATE" in prompt
+    assert "SYMBOL: BTC" in prompt
+    assert "current_price = 114775.5" in prompt
+    assert "Positions:" in prompt
+    assert "Sharpe Ratio: 1.23" in prompt

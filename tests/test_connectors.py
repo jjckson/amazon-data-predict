@@ -11,6 +11,7 @@ from connectors.base import (
     retry_and_rate_limit,
 )
 from connectors.keepa_client import KeepaClient
+from connectors.taapi_client import TaapiClient
 from tests.mock_keepa_server import sample_product_payload
 
 TEST_SETTINGS = {
@@ -26,6 +27,7 @@ TEST_SETTINGS = {
         "paapi": {"qpm": 1000, "burst": 1000, "timeout_sec": 1},
         "helium10": {"qpm": 1000, "burst": 1000, "timeout_sec": 1},
         "junglescout": {"qpm": 1000, "burst": 1000, "timeout_sec": 1},
+        "taapi": {"qpm": 1000, "burst": 1000, "timeout_sec": 1},
     },
 }
 
@@ -122,3 +124,72 @@ def test_get_products_handles_dead_letter(monkeypatch):
     products = fake.get_products(["B0001", "B0002"], "US")
     assert len(products) == 1
     assert fake.dead_letter == [{"asin": "B0002", "site": "US", "reason": "keepa_fetch_failed"}]
+
+
+def test_taapi_market_state_normalisation(monkeypatch):
+    client = TaapiClient("secret", settings=TEST_SETTINGS)
+
+    payload = {
+        "data": [
+            {"id": "current_price", "result": {"value": 114775.5}},
+            {"id": "current_ema20", "result": {"value": 114457.686}},
+            {"id": "current_macd", "result": {"valueMACD": 53.823}},
+            {"id": "current_rsi_7", "result": {"value": 86.769}},
+            {"id": "current_rsi_14", "result": {"value": 74.835}},
+            {
+                "id": "short_mid_prices",
+                "result": {"values": [{"value": 114339.5}, {"value": 114500.0}]},
+            },
+            {
+                "id": "short_ema20_series",
+                "result": {"values": [{"value": 114329.3}, {"value": 114480.5}]},
+            },
+            {
+                "id": "short_macd_series",
+                "result": {"values": [{"valueMACD": -60.9}, {"valueMACD": -12.1}]},
+            },
+            {
+                "id": "short_rsi7_series",
+                "result": {"values": [{"value": 61.9}, {"value": 65.2}]},
+            },
+            {
+                "id": "short_rsi14_series",
+                "result": {"values": [{"value": 51.1}, {"value": 54.0}]},
+            },
+            {"id": "long_ema20", "result": {"value": 113453.764}},
+            {"id": "long_ema50", "result": {"value": 112031.947}},
+            {"id": "long_atr3", "result": {"value": 319.999}},
+            {"id": "long_atr14", "result": {"value": 523.419}},
+            {"id": "long_volume_current", "result": {"value": 8.146}},
+            {"id": "long_volume_avg", "result": {"value": 4618.058}},
+            {
+                "id": "long_macd_series",
+                "result": {"values": [{"valueMACD": 1082.2}, {"valueMACD": 950.1}]},
+            },
+            {
+                "id": "long_rsi14_series",
+                "result": {"values": [{"value": 72.327}, {"value": 70.1}]},
+            },
+            {"id": "open_interest_latest", "result": {"value": 1234.0}},
+            {"id": "open_interest_avg", "result": {"value": 987.0}},
+            {"id": "funding_rate", "result": {"value": 0.0005}},
+        ]
+    }
+
+    captured: dict[str, Any] = {}
+
+    def fake_request(self, construct):  # type: ignore[override]
+        captured["construct"] = construct
+        return payload
+
+    monkeypatch.setattr(TaapiClient, "_request_bulk", fake_request)
+
+    state = client.get_market_state("BTC", "binance")
+
+    assert state["symbol"] == "BTC"
+    assert state["current_macd"] == 53.823
+    assert state["short_term"]["mid_prices"] == [114339.5, 114500.0]
+    assert state["long_term"]["macd_series_4h"] == [1082.2, 950.1]
+    ids = {entry["id"] for entry in captured["construct"]}
+    assert "current_price" in ids
+    assert "long_rsi14_series" in ids
