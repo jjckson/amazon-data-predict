@@ -4,6 +4,7 @@ from .spapi_client import SPAPIClient
 from .paapi_client import PAAPIClient
 from .h10_client import Helium10Client
 from .js_client import JungleScoutClient
+from .taapi_client import TaapiClient
 
 __all__ = [
     "KeepaClient",
@@ -11,4 +12,5 @@ __all__ = [
     "PAAPIClient",
     "Helium10Client",
     "JungleScoutClient",
+    "TaapiClient",
 ]
